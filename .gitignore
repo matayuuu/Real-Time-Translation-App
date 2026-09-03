@@ -1,0 +1,25 @@
+# Node / Electron
+node_modules/
+src/realtime-translator/out/
+src/realtime-translator/dist/
+src/realtime-translator/coverage/
+*.tsbuildinfo
+*.log
+
+# Local application and Terraform state
+.realtime-translation/
+infra/realtime-translation/.terraform/
+infra/realtime-translation/terraform.tfstate
+infra/realtime-translation/terraform.tfstate.*
+*.tfplan
+
+# Python
+__pycache__/
+.pytest_cache/
+*.py[cod]
+
+# Editors and operating systems
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

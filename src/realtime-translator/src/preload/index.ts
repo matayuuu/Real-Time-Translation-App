@@ -1,0 +1,48 @@
+import { contextBridge, ipcRenderer } from "electron";
+
+import type {
+  AppEvent,
+  DesktopBridge,
+  RecordingAppendPayload,
+  RecordingTrack,
+  SaveRecordingRequest,
+  TranslationSecretRequest,
+} from "../shared/contracts";
+import { IPC_CHANNELS } from "../shared/ipc";
+
+const bridge: DesktopBridge = {
+  configuration: {
+    get: () => ipcRenderer.invoke(IPC_CHANNELS.configurationGet),
+    choose: () => ipcRenderer.invoke(IPC_CHANNELS.configurationChoose),
+  },
+  translation: {
+    createSecret: (request: TranslationSecretRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.translationCreateSecret, request),
+  },
+  recording: {
+    start: (sampleRate: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingStart, sampleRate),
+    append: (payload: RecordingAppendPayload) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingAppend, payload),
+    stop: (sessionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingStop, sessionId),
+    save: (request: SaveRecordingRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingSave, request),
+    discard: (sessionId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingDiscard, sessionId),
+  },
+  events: {
+    subscribe(listener: (event: AppEvent) => void): () => void {
+      const wrapped = (_electronEvent: Electron.IpcRendererEvent, event: AppEvent) => {
+        listener(event);
+      };
+      ipcRenderer.on(IPC_CHANNELS.appEvent, wrapped);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.appEvent, wrapped);
+    },
+  },
+};
+
+contextBridge.exposeInMainWorld("desktop", bridge);
+
+void (null as unknown as RecordingTrack);
+void (null as unknown as SaveRecordingRequest);

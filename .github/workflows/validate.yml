@@ -1,0 +1,70 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  application:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: src/realtime-translator
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: src/realtime-translator/package-lock.json
+      - name: Validate PowerShell lifecycle scripts
+        working-directory: .
+        shell: pwsh
+        run: |
+          $scripts = @(
+            "scripts/realtime-translation-preflight.ps1",
+            "scripts/setup-realtime-translation.ps1",
+            "scripts/destroy-realtime-translation.ps1"
+          )
+          foreach ($script in $scripts) {
+            [void][scriptblock]::Create((Get-Content -Raw $script))
+          }
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Test
+        run: npm test
+      - name: Package Windows app
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: teams-realtime-translator-windows
+          path: |
+            src/realtime-translator/dist/*.exe
+            src/realtime-translator/dist/*.yml
+          if-no-files-found: error
+
+  infrastructure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - uses: hashicorp/setup-terraform@v3
+      - name: Install test dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Run contract tests
+        run: python -m pytest tests/contract
+      - name: Check Terraform formatting
+        run: terraform -chdir=infra/realtime-translation fmt -check
+      - name: Initialize Terraform
+        run: terraform -chdir=infra/realtime-translation init -backend=false
+      - name: Validate Terraform
+        run: terraform -chdir=infra/realtime-translation validate
