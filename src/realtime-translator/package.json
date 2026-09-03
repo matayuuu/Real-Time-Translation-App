@@ -1,6 +1,6 @@
 {
   "name": "teams-realtime-translator",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Windows companion app for bilingual Microsoft Teams captions and local MP3 recording",
   "main": "out/main/index.js",

@@ -17,6 +17,7 @@ export interface PcmBatch {
 export interface AudioPipelineOptions {
   onPcm(batch: PcmBatch): void;
   onLevel(source: AudioSource, level: number): void;
+  onError?(message: string): void;
 }
 
 function requireAudioTrack(stream: MediaStream, label: string): MediaStreamTrack {
@@ -90,23 +91,21 @@ export async function captureAudio(
   };
 }
 
-function calculateLevel(
-  analyser: AnalyserNode,
-  buffer: Float32Array<ArrayBuffer>,
-): number {
-  analyser.getFloatTimeDomainData(buffer);
+export function calculatePcmLevel(samples: Float32Array): number {
+  if (samples.length === 0) {
+    return 0;
+  }
   let sum = 0;
-  for (const sample of buffer) {
+  for (const sample of samples) {
     sum += sample * sample;
   }
-  const rms = Math.sqrt(sum / buffer.length);
+  const rms = Math.sqrt(sum / samples.length);
   return Math.min(1, rms * 4);
 }
 
 export class AudioPipeline {
   private context: AudioContext | null = null;
-  private animationFrame: number | null = null;
-  private updateLevels: (() => void) | null = null;
+  private pauseRequested = false;
 
   public async start(
     captured: CapturedAudio,
@@ -118,6 +117,20 @@ export class AudioPipeline {
 
     const context = new AudioContext({ latencyHint: "interactive" });
     this.context = context;
+    this.pauseRequested = false;
+    context.onstatechange = () => {
+      if (context.state === "suspended" && !this.pauseRequested) {
+        void context.resume().catch((error: unknown) => {
+          options.onError?.(
+            `Audio pipeline could not resume: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        });
+      } else if (context.state === "closed" && this.context === context) {
+        options.onError?.("Audio pipeline closed unexpectedly.");
+      }
+    };
     await context.audioWorklet.addModule("/capture-processor.js");
 
     const speakerSource = context.createMediaStreamSource(
@@ -147,48 +160,19 @@ export class AudioPipeline {
       channelCountMode: "explicit",
     });
     const mutedOutput = new GainNode(context, { gain: 0 });
-    const speakerAnalyser = new AnalyserNode(context, {
-      fftSize: 512,
-      smoothingTimeConstant: 0.75,
-    });
-    const microphoneAnalyser = new AnalyserNode(context, {
-      fftSize: 512,
-      smoothingTimeConstant: 0.75,
-    });
 
     speakerSource.connect(speakerMono);
     microphoneSource.connect(microphoneMono);
     speakerMono.connect(merger, 0, 0);
     microphoneMono.connect(merger, 0, 1);
-    speakerMono.connect(speakerAnalyser);
-    microphoneMono.connect(microphoneAnalyser);
     merger.connect(processor);
     processor.connect(mutedOutput).connect(context.destination);
     processor.port.onmessage = (event: MessageEvent<PcmBatch>) => {
-      options.onPcm(event.data);
+      const batch = event.data;
+      options.onLevel("speaker", calculatePcmLevel(batch.speaker));
+      options.onLevel("microphone", calculatePcmLevel(batch.microphone));
+      options.onPcm(batch);
     };
-
-    const speakerLevelData = new Float32Array(
-      new ArrayBuffer(speakerAnalyser.fftSize * Float32Array.BYTES_PER_ELEMENT),
-    );
-    const microphoneLevelData = new Float32Array(
-      new ArrayBuffer(
-        microphoneAnalyser.fftSize * Float32Array.BYTES_PER_ELEMENT,
-      ),
-    );
-    const updateLevels = (): void => {
-      options.onLevel(
-        "speaker",
-        calculateLevel(speakerAnalyser, speakerLevelData),
-      );
-      options.onLevel(
-        "microphone",
-        calculateLevel(microphoneAnalyser, microphoneLevelData),
-      );
-      this.animationFrame = requestAnimationFrame(updateLevels);
-    };
-    this.updateLevels = updateLevels;
-    updateLevels();
     await context.resume();
     return context.sampleRate;
   }
@@ -197,10 +181,12 @@ export class AudioPipeline {
     if (!this.context) {
       throw new Error("Audio pipeline is not running.");
     }
-    await this.context.suspend();
-    if (this.animationFrame !== null) {
-      cancelAnimationFrame(this.animationFrame);
-      this.animationFrame = null;
+    this.pauseRequested = true;
+    try {
+      await this.context.suspend();
+    } catch (error) {
+      this.pauseRequested = false;
+      throw error;
     }
   }
 
@@ -209,20 +195,15 @@ export class AudioPipeline {
       throw new Error("Audio pipeline is not running.");
     }
     await this.context.resume();
-    if (this.animationFrame === null) {
-      this.updateLevels?.();
-    }
+    this.pauseRequested = false;
   }
 
   public async stop(): Promise<void> {
-    if (this.animationFrame !== null) {
-      cancelAnimationFrame(this.animationFrame);
-      this.animationFrame = null;
-    }
     if (this.context) {
+      this.context.onstatechange = null;
       await this.context.close();
       this.context = null;
     }
-    this.updateLevels = null;
+    this.pauseRequested = false;
   }
 }

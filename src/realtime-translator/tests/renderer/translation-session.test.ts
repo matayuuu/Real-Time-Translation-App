@@ -37,6 +37,27 @@ describe("parseTranscriptEvent", () => {
     });
   });
 
+  it.each([
+    ["conversation.item.input_audio_transcription.delta", "input", "delta"],
+    ["session.input_transcript.completed", "input", "done"],
+    ["session.input_transcript.done", "input", "done"],
+    ["session.output_transcript.completed", "output", "done"],
+    ["response.output_text.delta", "output", "delta"],
+    ["response.output_audio_transcript.done", "output", "done"],
+  ] as const)(
+    "maps the documented %s event",
+    (type, side, kind) => {
+      expect(
+        parseTranscriptEvent("speaker", {
+          type,
+          transcript: "Transcript",
+          text: "Text",
+          delta: "Delta",
+        }),
+      ).toMatchObject({ source: "speaker", side, kind });
+    },
+  );
+
   it("uses elapsed time before distinct API item IDs for alignment", () => {
     expect(
       parseTranscriptEvent(

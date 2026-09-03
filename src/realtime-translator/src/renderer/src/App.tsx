@@ -571,6 +571,9 @@ export function App(): React.JSX.Element {
         onLevel(source, level) {
           setLevels((current) => ({ ...current, [source]: level }));
         },
+        onError(message) {
+          setGlobalError(message);
+        },
       });
       await recorder.start(sampleRate);
       recorderRef.current = recorder;

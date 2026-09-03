@@ -136,6 +136,7 @@ npm test
 | Azure RBAC / 401 / 403 | `az login` と対象 subscription を確認します。context の account / endpoint / deployment を手編集せず、setup の完了後に再起動します。権限の反映には時間がかかることがあります。 |
 | quota または deployment 作成失敗 | setup 前の preflight report を確認します。`eastus2` の各 GlobalStandard quota は deployment ごとに capacity 5 以上必要です。provider の登録や quota 増量は subscription 管理者に依頼します。 |
 | WebRTC 接続できない | 組織の firewall、proxy、VPN、TLS inspection が WebRTC の HTTPS/WSS/STUN/TURN 通信を妨げていないか、ネットワーク管理者に確認します。回避のために firewall を無断で変更しないでください。 |
+| 日本語訳は続くが EN 原文だけ止まる | アプリは複数の Realtime transcript event 形式を処理し、訳文だけが45秒以上続く場合は該当セッションを自動再接続します。再接続中の表示とエラー内容を確認してください。 |
 
 ## cleanup
 
