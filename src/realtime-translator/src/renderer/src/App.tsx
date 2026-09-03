@@ -772,7 +772,7 @@ export function App(): React.JSX.Element {
       <header className="app-header">
         <div className="brand">
           <div className="brand__mark" aria-hidden="true">
-            通
+            <img src="/app-icon.png" alt="" />
           </div>
           <div>
             <h1>Teams Realtime Translator</h1>

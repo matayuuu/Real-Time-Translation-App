@@ -65,9 +65,17 @@ main {
   height: 44px;
   place-items: center;
   border-radius: 0.625rem;
-  background: var(--cp-accent);
-  color: var(--cp-accent-fg);
-  font-weight: 700;
+  overflow: hidden;
+  border: 1px solid var(--cp-border);
+  background: var(--cp-surface-soft);
+  padding: 3px;
+}
+
+.brand__mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 h1,
