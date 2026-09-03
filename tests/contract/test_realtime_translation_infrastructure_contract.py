@@ -1,4 +1,4 @@
-"""Static contracts for the isolated Teams realtime translation Terraform root."""
+"""Static contracts for the isolated realtime translation Terraform root."""
 
 from __future__ import annotations
 

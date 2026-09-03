@@ -42,7 +42,7 @@ jobs:
         run: npm run package
       - uses: actions/upload-artifact@v4
         with:
-          name: teams-realtime-translator-windows
+          name: realtime-translator-windows
           path: |
             src/realtime-translator/dist/*.exe
             src/realtime-translator/dist/*.yml

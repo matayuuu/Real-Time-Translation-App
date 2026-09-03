@@ -1,8 +1,9 @@
 {
-  "name": "teams-realtime-translator",
-  "version": "0.1.2",
+  "name": "realtime-translator",
+  "productName": "Realtime Translator",
+  "version": "0.1.3",
   "private": true,
-  "description": "Windows companion app for bilingual Microsoft Teams captions and local MP3 recording",
+  "description": "Windows companion app for bilingual realtime captions and local MP3 recording",
   "main": "out/main/index.js",
   "author": "matayuuu",
   "license": "MIT",
@@ -42,8 +43,8 @@
     "vitest": "4.1.11"
   },
   "build": {
-    "appId": "com.matayuuu.teamsrealtimetranslator",
-    "productName": "Teams Realtime Translator",
+    "appId": "com.matayuuu.realtimetranslator",
+    "productName": "Realtime Translator",
     "asar": true,
     "directories": {
       "output": "dist"

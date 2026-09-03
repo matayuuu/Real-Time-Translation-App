@@ -34,6 +34,13 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+app.setName("Realtime Translator");
+// Keep existing settings and pending recordings across the product rename.
+app.setPath(
+  "userData",
+  join(app.getPath("appData"), "teams-realtime-translator"),
+);
+
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL);
 const appRoot = app.getAppPath();
 const repositoryContextPath = isDevelopment
@@ -241,7 +248,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
-    app.setAppUserModelId("com.matayuuu.teamsrealtimetranslator");
+    app.setAppUserModelId("com.matayuuu.realtimetranslator");
     contextService = new ContextService(
       join(app.getPath("userData"), "settings.json"),
       repositoryContextPath,

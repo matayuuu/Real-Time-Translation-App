@@ -42,6 +42,10 @@ export type AppPhase =
   | "finished"
   | "error";
 
+export function shouldShowConsentNotice(phase: AppPhase): boolean {
+  return phase === "idle" || phase === "error";
+}
+
 const INITIAL_CONNECTIONS: Record<
   AudioSource,
   TranslationConnectionState
@@ -218,10 +222,9 @@ function TranscriptPane({
     <section className="transcript-pane" aria-labelledby={`${source}-title`}>
       <header className="transcript-pane__header">
         <div>
-          <p className="eyebrow">{isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}</p>
-          <h2 id={`${source}-title`}>
-            {isSpeaker ? "相手の発言" : "自分の発言"}
-          </h2>
+          <p className="eyebrow" id={`${source}-title`}>
+            {isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}
+          </p>
           <p className="language-pair">
             {isSpeaker ? "English → 日本語" : "日本語 → English"}
           </p>
@@ -752,6 +755,7 @@ export function App(): React.JSX.Element {
     consent &&
     recordingResult === null &&
     (phase === "idle" || phase === "error");
+  const showConsentNotice = shouldShowConsentNotice(phase);
   const sessionStatus =
     phase === "running"
       ? "録音中"
@@ -778,7 +782,7 @@ export function App(): React.JSX.Element {
             <img src="/app-icon.png" alt="" />
           </div>
           <div>
-            <h1>Teams Realtime Translator</h1>
+            <h1>Realtime Translator</h1>
             <p>英語と日本語を、話者ごとにリアルタイム表示</p>
           </div>
         </div>
@@ -858,24 +862,25 @@ export function App(): React.JSX.Element {
         <div className="global-message global-message--error">{globalError}</div>
       ) : null}
 
-      <section className="notice-bar">
-        <div>
-          <strong>録音と Azure 送信について</strong>
-          <p>
-            既定スピーカーの全システム音声とマイクを取得し、文字起こし・翻訳のため
-            Azure へ送信します。Teams の相手から録音同意を得て、headset を利用してください。
-          </p>
-        </div>
-        <label className="consent">
-          <input
-            type="checkbox"
-            checked={consent}
-            disabled={sessionIsActive}
-            onChange={(event) => setConsent(event.target.checked)}
-          />
-          <span>同意を確認しました</span>
-        </label>
-      </section>
+      {showConsentNotice ? (
+        <section className="notice-bar">
+          <div>
+            <strong>録音と Azure 送信について</strong>
+            <p>
+              既定スピーカーの全システム音声とマイクを取得し、文字起こし・翻訳のため
+              Azure へ送信します。参加者から録音同意を得て、headset を利用してください。
+            </p>
+          </div>
+          <label className="consent">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(event) => setConsent(event.target.checked)}
+            />
+            <span>同意を確認しました</span>
+          </label>
+        </section>
+      ) : null}
 
       <section className="transcript-grid">
         <TranscriptPane

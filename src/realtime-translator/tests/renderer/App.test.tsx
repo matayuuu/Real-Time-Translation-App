@@ -9,6 +9,7 @@ import {
   App,
   ExportPanel,
   SessionControls,
+  shouldShowConsentNotice,
 } from "../../src/renderer/src/App";
 
 const bridge: DesktopBridge = {
@@ -50,19 +51,40 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "相手の発言" }),
+      await screen.findByRole("region", { name: "SPEAKER OUTPUT" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "自分の発言" }),
+      screen.getByRole("region", { name: "MICROPHONE INPUT" }),
     ).toBeTruthy();
     expect(screen.getByText("English → 日本語")).toBeTruthy();
     expect(screen.getByText("日本語 → English")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "Realtime Translator" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("相手の発言")).toBeNull();
+    expect(screen.queryByText("自分の発言")).toBeNull();
     expect(
       screen.getByRole<HTMLButtonElement>("button", {
         name: "START CONVERSATION",
       })
         .disabled,
     ).toBe(true);
+  });
+
+  it("shows consent only before a session starts or after an error", () => {
+    expect(shouldShowConsentNotice("idle")).toBe(true);
+    expect(shouldShowConsentNotice("error")).toBe(true);
+    for (const phase of [
+      "starting",
+      "running",
+      "pausing",
+      "paused",
+      "resuming",
+      "stopping",
+      "finished",
+    ] as const) {
+      expect(shouldShowConsentNotice(phase)).toBe(false);
+    }
   });
 
   it("offers pause and end while running, then resume and end while paused", () => {
