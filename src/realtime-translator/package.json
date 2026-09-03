@@ -1,6 +1,6 @@
 {
   "name": "teams-realtime-translator",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Windows companion app for bilingual Microsoft Teams captions and local MP3 recording",
   "main": "out/main/index.js",
@@ -54,6 +54,10 @@
     ],
     "extraResources": [
       {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
+      {
         "from": "THIRD-PARTY-NOTICES.md",
         "to": "THIRD-PARTY-NOTICES.md"
       },
@@ -63,6 +67,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

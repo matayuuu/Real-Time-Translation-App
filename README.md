@@ -9,6 +9,7 @@ Teams のプラグインや会議ボットではありません。PC のシス�
 - システム音声: 英語の文字起こしと日本語訳
 - マイク音声: 日本語の文字起こしと英語訳
 - 2 系統を並べたリアルタイム transcript
+- 会話の一時停止、再開、終了
 - 相手、自分、会話全体の 3 種類の MP3 保存
 - Microsoft Entra ID / Azure RBAC による keyless 接続
 - Terraform と PowerShell による Azure リソースの setup / cleanup

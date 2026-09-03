@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTranscriptEvent } from "../../src/renderer/src/realtime/translation-session";
+import {
+  parseTranscriptEvent,
+  TranslationSession,
+} from "../../src/renderer/src/realtime/translation-session";
 
 describe("parseTranscriptEvent", () => {
   it("maps source transcript deltas", () => {
@@ -76,5 +79,21 @@ describe("parseTranscriptEvent", () => {
     expect(
       parseTranscriptEvent("speaker", { type: "session.updated" }),
     ).toBeNull();
+  });
+
+  it("stops and resumes audio transmission without closing the session", () => {
+    const audioTrack = { enabled: true } as MediaStreamTrack;
+    const session = new TranslationSession("microphone", audioTrack, {
+      onState() {},
+      onTranscript() {},
+      onFinalize() {},
+      onError() {},
+    });
+
+    session.pause();
+    expect(audioTrack.enabled).toBe(false);
+
+    session.resume();
+    expect(audioTrack.enabled).toBe(true);
   });
 });

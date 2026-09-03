@@ -200,6 +200,9 @@ async function createWindow(): Promise<void> {
     minWidth: 1040,
     minHeight: 700,
     show: false,
+    icon: isDevelopment
+      ? resolve(appRoot, "build", "icon.ico")
+      : join(process.resourcesPath, "icon.ico"),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       nodeIntegration: false,
@@ -238,6 +241,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    app.setAppUserModelId("com.matayuuu.teamsrealtimetranslator");
     contextService = new ContextService(
       join(app.getPath("userData"), "settings.json"),
       repositoryContextPath,

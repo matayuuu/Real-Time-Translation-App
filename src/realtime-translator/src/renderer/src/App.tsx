@@ -31,10 +31,13 @@ import {
   type TranscriptEntry,
 } from "./transcript/reducer";
 
-type AppPhase =
+export type AppPhase =
   | "idle"
   | "starting"
   | "running"
+  | "pausing"
+  | "paused"
+  | "resuming"
   | "stopping"
   | "finished"
   | "error";
@@ -95,6 +98,86 @@ function LevelMeter({ label, value }: LevelMeterProps): React.JSX.Element {
         max={1}
         value={Math.max(0.015, value)}
       />
+    </div>
+  );
+}
+
+interface SessionControlsProps {
+  phase: AppPhase;
+  canStart: boolean;
+  onStart(): void;
+  onPause(): void;
+  onResume(): void;
+  onStop(): void;
+}
+
+export function SessionControls({
+  phase,
+  canStart,
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+}: SessionControlsProps): React.JSX.Element {
+  if (phase === "running") {
+    return (
+      <div className="primary-actions">
+        <button
+          className="button button--pause"
+          type="button"
+          onClick={onPause}
+        >
+          STOP
+        </button>
+        <button
+          className="button button--stop"
+          type="button"
+          onClick={onStop}
+        >
+          END SESSION
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "paused") {
+    return (
+      <div className="primary-actions">
+        <button
+          className="button button--primary"
+          type="button"
+          onClick={onResume}
+        >
+          RESUME
+        </button>
+        <button
+          className="button button--stop"
+          type="button"
+          onClick={onStop}
+        >
+          END SESSION
+        </button>
+      </div>
+    );
+  }
+
+  const transitionLabels: Partial<Record<AppPhase, string>> = {
+    starting: "CONNECTING...",
+    pausing: "PAUSING...",
+    resuming: "RESUMING...",
+    stopping: "FINISHING...",
+  };
+
+  return (
+    <div className="primary-actions">
+      <button
+        className="button button--primary"
+        type="button"
+        disabled={!canStart}
+        onClick={onStart}
+      >
+        {transitionLabels[phase] ?? "START CONVERSATION"}
+      </button>
     </div>
   );
 }
@@ -196,14 +279,18 @@ interface ExportPanelProps {
   onDiscard(): Promise<void>;
   savingTrack: RecordingTrack | null;
   discarding: boolean;
+  savedPaths: Partial<Record<RecordingTrack, string>>;
+  error: string | null;
 }
 
-function ExportPanel({
+export function ExportPanel({
   result,
   onSave,
   onDiscard,
   savingTrack,
   discarding,
+  savedPaths,
+  error,
 }: ExportPanelProps): React.JSX.Element {
   const exports: Array<{
     track: RecordingTrack;
@@ -212,59 +299,92 @@ function ExportPanel({
   }> = [
     {
       track: "speaker",
-      title: "相手の音声",
+      title: "SPEAKER MP3",
       detail: "スピーカー出力のみ",
     },
     {
       track: "microphone",
-      title: "自分の音声",
+      title: "MICROPHONE MP3",
       detail: "マイク入力のみ",
     },
     {
       track: "mix",
-      title: "会話全体",
+      title: "FULL MIX MP3",
       detail: "相手と自分をミックス",
     },
   ];
 
+  const savedCount = Object.keys(savedPaths).length;
+
   return (
-    <section className="export-panel" aria-labelledby="export-title">
-      <div>
-        <p className="eyebrow">LOCAL RECORDING</p>
-        <h2 id="export-title">MP3 を保存</h2>
-        <p>
-          必要なファイルを保存後、一時録音を削除すると次の会話を開始できます。
-        </p>
-      </div>
-      <div className="export-controls">
-        <div className="export-actions">
-          {exports.map(({ track, title, detail }) => (
-            <button
-              className="export-button"
-              key={track}
-              type="button"
-              disabled={
-                savingTrack !== null ||
-                discarding ||
-                result.tracks[track].byteLength === 0
-              }
-              onClick={() => void onSave(track)}
-            >
-              <span>{savingTrack === track ? "保存中…" : title}</span>
-              <small>{detail}</small>
-            </button>
-          ))}
+    <div className="export-backdrop">
+      <section
+        className="export-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+      >
+        <div className="export-panel__intro">
+          <p className="eyebrow">SESSION COMPLETE</p>
+          <h2 id="export-title">録音を保存しますか？</h2>
+          <p>
+            保存する音声を選んでください。保存しない音声は、この画面を閉じると削除されます。
+          </p>
         </div>
-        <button
-          className="button button--discard"
-          type="button"
-          disabled={savingTrack !== null || discarding}
-          onClick={() => void onDiscard()}
-        >
-          {discarding ? "削除中…" : "一時録音を削除"}
-        </button>
-      </div>
-    </section>
+        <div className="export-controls">
+          <div className="export-actions">
+            {exports.map(({ track, title, detail }) => {
+              const savedPath = savedPaths[track];
+              return (
+                <button
+                  className={`export-button ${savedPath ? "is-saved" : ""}`}
+                  key={track}
+                  type="button"
+                  disabled={
+                    savingTrack !== null ||
+                    discarding ||
+                    result.tracks[track].byteLength === 0 ||
+                    Boolean(savedPath)
+                  }
+                  onClick={() => void onSave(track)}
+                >
+                  <span>
+                    {savedPath
+                      ? "SAVED"
+                      : savingTrack === track
+                        ? "SAVING..."
+                        : `SAVE ${title}`}
+                  </span>
+                  <small>{savedPath ?? detail}</small>
+                </button>
+              );
+            })}
+          </div>
+          {error ? (
+            <div className="global-message global-message--error">{error}</div>
+          ) : null}
+          <div className="export-panel__footer">
+            <p>
+              {savedCount > 0
+                ? `${savedCount} 件を保存しました。`
+                : "保存しない場合、一時録音は端末から削除されます。"}
+            </p>
+            <button
+              className="button button--discard"
+              type="button"
+              disabled={savingTrack !== null || discarding}
+              onClick={() => void onDiscard()}
+            >
+              {discarding
+                ? "CLOSING..."
+                : savedCount > 0
+                  ? "DONE"
+                  : "DISCARD & CLOSE"}
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -292,6 +412,9 @@ export function App(): React.JSX.Element {
     useState<RecordingStopResult | null>(null);
   const [savingTrack, setSavingTrack] = useState<RecordingTrack | null>(null);
   const [discardingRecording, setDiscardingRecording] = useState(false);
+  const [savedPaths, setSavedPaths] = useState<
+    Partial<Record<RecordingTrack, string>>
+  >({});
   const [transcripts, dispatchTranscript] = useReducer(
     transcriptReducer,
     EMPTY_TRANSCRIPTS,
@@ -304,6 +427,7 @@ export function App(): React.JSX.Element {
     Partial<Record<AudioSource, TranslationSession>>
   >({});
   const startedAtRef = useRef<number | null>(null);
+  const accumulatedElapsedMsRef = useRef(0);
 
   const refreshMicrophones = useCallback(async (): Promise<void> => {
     try {
@@ -344,8 +468,14 @@ export function App(): React.JSX.Element {
       return;
     }
     const timer = window.setInterval(() => {
+      const startedAt = startedAtRef.current;
+      if (startedAt === null) {
+        return;
+      }
       setElapsedSeconds(
-        Math.floor((Date.now() - startedAtRef.current!) / 1_000),
+        Math.floor(
+          (accumulatedElapsedMsRef.current + Date.now() - startedAt) / 1_000,
+        ),
       );
     }, 500);
     return () => window.clearInterval(timer);
@@ -412,6 +542,10 @@ export function App(): React.JSX.Element {
     setSourceErrors({ speaker: null, microphone: null });
     setConnections(INITIAL_CONNECTIONS);
     setRecordingResult(null);
+    setSavedPaths({});
+    accumulatedElapsedMsRef.current = 0;
+    startedAtRef.current = null;
+    setElapsedSeconds(0);
     dispatchTranscript({ type: "clear" });
 
     try {
@@ -486,9 +620,63 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const stop = async (): Promise<void> => {
-    if (phase !== "running") {
+  const pause = async (): Promise<void> => {
+    if (phase !== "running" || !pipelineRef.current) {
       return;
+    }
+
+    setPhase("pausing");
+    setGlobalError(null);
+    Object.values(sessionsRef.current).forEach((session) => session.pause());
+    try {
+      await pipelineRef.current.pause();
+      if (startedAtRef.current !== null) {
+        accumulatedElapsedMsRef.current += Date.now() - startedAtRef.current;
+        startedAtRef.current = null;
+      }
+      setElapsedSeconds(
+        Math.floor(accumulatedElapsedMsRef.current / 1_000),
+      );
+      setLevels({ speaker: 0, microphone: 0 });
+      setPhase("paused");
+    } catch (error) {
+      setGlobalError(`一時停止できませんでした: ${errorMessage(error)}`);
+      const result = await stopResources();
+      setRecordingResult(result);
+      setPhase(result ? "finished" : "error");
+    }
+  };
+
+  const resume = async (): Promise<void> => {
+    if (phase !== "paused" || !pipelineRef.current) {
+      return;
+    }
+
+    setPhase("resuming");
+    setGlobalError(null);
+    try {
+      await pipelineRef.current.resume();
+      Object.values(sessionsRef.current).forEach((session) => session.resume());
+      startedAtRef.current = Date.now();
+      setPhase("running");
+    } catch (error) {
+      setGlobalError(`再開できませんでした: ${errorMessage(error)}`);
+      const result = await stopResources();
+      setRecordingResult(result);
+      setPhase(result ? "finished" : "error");
+    }
+  };
+
+  const stop = async (): Promise<void> => {
+    if (phase !== "running" && phase !== "paused") {
+      return;
+    }
+    if (phase === "running" && startedAtRef.current !== null) {
+      accumulatedElapsedMsRef.current += Date.now() - startedAtRef.current;
+      startedAtRef.current = null;
+      setElapsedSeconds(
+        Math.floor(accumulatedElapsedMsRef.current / 1_000),
+      );
     }
     setPhase("stopping");
     const result = await stopResources();
@@ -509,11 +697,17 @@ export function App(): React.JSX.Element {
     setSavingTrack(track);
     setGlobalError(null);
     try {
-      await window.desktop.recording.save({
+      const result = await window.desktop.recording.save({
         sessionId: recordingResult.sessionId,
         track,
         suggestedName: names[track],
       });
+      if (!result.canceled && result.filePath) {
+        setSavedPaths((current) => ({
+          ...current,
+          [track]: result.filePath,
+        }));
+      }
     } catch (error) {
       setGlobalError(errorMessage(error));
     } finally {
@@ -530,6 +724,9 @@ export function App(): React.JSX.Element {
     try {
       await window.desktop.recording.discard(recordingResult.sessionId);
       setRecordingResult(null);
+      setSavedPaths({});
+      accumulatedElapsedMsRef.current = 0;
+      startedAtRef.current = null;
       setElapsedSeconds(0);
       setPhase("idle");
     } catch (error) {
@@ -539,11 +736,29 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const sessionIsActive = [
+    "starting",
+    "running",
+    "pausing",
+    "paused",
+    "resuming",
+    "stopping",
+  ].includes(phase);
   const canStart =
     Boolean(configuration) &&
     consent &&
     recordingResult === null &&
-    !["starting", "running", "stopping"].includes(phase);
+    (phase === "idle" || phase === "error");
+  const sessionStatus =
+    phase === "running"
+      ? "録音中"
+      : phase === "paused"
+        ? "一時停止中"
+        : phase === "starting" || phase === "resuming"
+          ? "接続中"
+          : phase === "pausing" || phase === "stopping"
+            ? "処理中"
+            : "待機中";
   const modelSummary = useMemo(() => {
     if (!configuration) {
       return null;
@@ -565,8 +780,16 @@ export function App(): React.JSX.Element {
           </div>
         </div>
         <div className="session-summary">
-          <span className={`recording-dot ${phase === "running" ? "is-live" : ""}`} />
-          <span>{phase === "running" ? "録音中" : "待機中"}</span>
+          <span
+            className={`recording-dot ${
+              phase === "running"
+                ? "is-live"
+                : phase === "paused"
+                  ? "is-paused"
+                  : ""
+            }`}
+          />
+          <span>{sessionStatus}</span>
           <strong>{formatElapsed(elapsedSeconds)}</strong>
         </div>
       </header>
@@ -587,10 +810,10 @@ export function App(): React.JSX.Element {
           <button
             className="button button--quiet"
             type="button"
-            disabled={phase === "running" || phase === "starting"}
+            disabled={sessionIsActive}
             onClick={() => void chooseConfiguration()}
           >
-            設定を選択
+            SELECT CONFIG
           </button>
         </div>
 
@@ -598,7 +821,7 @@ export function App(): React.JSX.Element {
           <span>マイク</span>
           <select
             value={microphoneDeviceId}
-            disabled={phase === "running" || phase === "starting"}
+            disabled={sessionIsActive}
             onChange={(event) => setMicrophoneDeviceId(event.target.value)}
           >
             {microphones.length === 0 ? (
@@ -613,26 +836,14 @@ export function App(): React.JSX.Element {
           </select>
         </label>
 
-        <div className="primary-actions">
-          {phase === "running" ? (
-            <button
-              className="button button--stop"
-              type="button"
-              onClick={() => void stop()}
-            >
-              会話を終了
-            </button>
-          ) : (
-            <button
-              className="button button--primary"
-              type="button"
-              disabled={!canStart}
-              onClick={() => void start()}
-            >
-              {phase === "starting" ? "接続中…" : "会話を開始"}
-            </button>
-          )}
-        </div>
+        <SessionControls
+          phase={phase}
+          canStart={canStart}
+          onStart={() => void start()}
+          onPause={() => void pause()}
+          onResume={() => void resume()}
+          onStop={() => void stop()}
+        />
       </section>
 
       {configurationError ? (
@@ -656,7 +867,7 @@ export function App(): React.JSX.Element {
           <input
             type="checkbox"
             checked={consent}
-            disabled={phase === "running" || phase === "starting"}
+            disabled={sessionIsActive}
             onChange={(event) => setConsent(event.target.checked)}
           />
           <span>同意を確認しました</span>
@@ -687,6 +898,8 @@ export function App(): React.JSX.Element {
           onDiscard={discardRecording}
           savingTrack={savingTrack}
           discarding={discardingRecording}
+          savedPaths={savedPaths}
+          error={globalError}
         />
       ) : null}
 

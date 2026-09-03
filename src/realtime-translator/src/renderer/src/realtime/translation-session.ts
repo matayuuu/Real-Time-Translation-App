@@ -156,6 +156,16 @@ export class TranslationSession {
     await this.connect("connecting");
   }
 
+  public pause(): void {
+    this.audioTrack.enabled = false;
+  }
+
+  public resume(): void {
+    if (!this.stopRequested) {
+      this.audioTrack.enabled = true;
+    }
+  }
+
   public async close(): Promise<void> {
     this.stopRequested = true;
     this.callbacks.onState("closing");

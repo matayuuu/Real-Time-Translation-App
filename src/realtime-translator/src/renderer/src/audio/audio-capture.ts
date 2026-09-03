@@ -106,6 +106,7 @@ function calculateLevel(
 export class AudioPipeline {
   private context: AudioContext | null = null;
   private animationFrame: number | null = null;
+  private updateLevels: (() => void) | null = null;
 
   public async start(
     captured: CapturedAudio,
@@ -186,9 +187,31 @@ export class AudioPipeline {
       );
       this.animationFrame = requestAnimationFrame(updateLevels);
     };
+    this.updateLevels = updateLevels;
     updateLevels();
     await context.resume();
     return context.sampleRate;
+  }
+
+  public async pause(): Promise<void> {
+    if (!this.context) {
+      throw new Error("Audio pipeline is not running.");
+    }
+    await this.context.suspend();
+    if (this.animationFrame !== null) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+  }
+
+  public async resume(): Promise<void> {
+    if (!this.context) {
+      throw new Error("Audio pipeline is not running.");
+    }
+    await this.context.resume();
+    if (this.animationFrame === null) {
+      this.updateLevels?.();
+    }
   }
 
   public async stop(): Promise<void> {
@@ -200,5 +223,6 @@ export class AudioPipeline {
       await this.context.close();
       this.context = null;
     }
+    this.updateLevels = null;
   }
 }
