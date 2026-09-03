@@ -1,0 +1,27 @@
+# Copy only if you need explicit inputs; the PowerShell lifecycle scripts pass
+# the required values directly and keep state in this isolated Terraform root.
+subscription_id     = "00000000-0000-0000-0000-000000000000"
+resource_group_name = "example-resource-group"
+location            = "eastus2"
+project_name        = "realtime-translation"
+
+# Copy the `caller_object_id` emitted by realtime-translation-preflight.ps1.
+participant_object_id = "00000000-0000-0000-0000-000000000000"
+
+translation_model = {
+  deployment_name = "gpt-realtime-translate"
+  name            = "gpt-realtime-translate"
+  version         = "2026-05-06"
+  sku             = "GlobalStandard"
+  capacity        = 5
+}
+
+transcription_model = {
+  deployment_name = "gpt-realtime-whisper"
+  name            = "gpt-realtime-whisper"
+  version         = "2026-05-06"
+  sku             = "GlobalStandard"
+  capacity        = 5
+}
+
+model_retirement_date = "2027-05-06"
