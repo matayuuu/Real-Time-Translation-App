@@ -87,11 +87,43 @@ describe("TranslationSecretService", () => {
     });
   });
 
-  it("rejects a target language that does not match the separated source", async () => {
+  it("accepts Japanese output for the microphone source", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ value: "microphone-secret" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await new TranslationSecretService().create(context, {
+      source: "microphone",
+      targetLanguage: "ja",
+    });
+
+    const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(String(request.body)) as {
+      session: {
+        audio: {
+          input: { noise_reduction: unknown };
+          output: { language: string };
+        };
+      };
+    };
+    expect(body.session.audio).toEqual({
+      input: {
+        transcription: { model: "gpt-realtime-whisper" },
+        noise_reduction: { type: "near_field" },
+      },
+      output: { language: "ja" },
+    });
+  });
+
+  it("rejects English output for either source", async () => {
     await expect(
       new TranslationSecretService().create(context, {
         source: "microphone",
-        targetLanguage: "ja",
+        targetLanguage: "en",
       }),
     ).rejects.toThrow("Invalid target language");
   });

@@ -119,7 +119,11 @@ describe("RecordingController", () => {
 
     const controller = new RecordingController();
     await controller.start(48_000);
-    controller.encode({ mix: new Float32Array([0.25, -0.25]) });
+    controller.encode({
+      speaker: new Float32Array([0.5, 0]),
+      microphone: new Float32Array([0, -0.5]),
+      mix: new Float32Array([0.25, -0.25]),
+    });
     await Promise.resolve();
     const result = await controller.stop();
 

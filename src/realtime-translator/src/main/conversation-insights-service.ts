@@ -132,10 +132,7 @@ function normalizeTranscript(
       ...(entry.elapsedMs !== undefined
         ? { elapsed_ms: entry.elapsedMs }
         : {}),
-      japanese_text:
-        entry.source === "speaker"
-          ? translation || original
-          : original || translation,
+      japanese_text: translation || original,
       original,
       translation,
     });

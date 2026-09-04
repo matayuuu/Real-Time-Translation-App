@@ -2,7 +2,12 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopBridge } from "../../src/shared/contracts";
-import { App, ExportPanel } from "../../src/renderer/src/App";
+import {
+  App,
+  ExportPanel,
+  SessionControls,
+  shouldShowConsentNotice,
+} from "../../src/renderer/src/App";
 
 const bridge: DesktopBridge = {
   configuration: {
@@ -28,6 +33,7 @@ describe("App", () => {
   afterEach(cleanup);
 
   beforeEach(() => {
+    vi.clearAllMocks();
     Object.defineProperty(window, "desktop", {
       configurable: true,
       value: bridge,
@@ -52,9 +58,13 @@ describe("App", () => {
         insightsAvailable
         transcriptAvailable
         savedOutput={null}
+        error={null}
       />,
     );
 
+    expect(
+      screen.getByRole("dialog", { name: "音声ファイルを保存しますか？" }),
+    ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("checkbox", { name: /日本語で会話を要約/ }),
     );
@@ -64,7 +74,7 @@ describe("App", () => {
       }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /会話音声を保存/ }),
+      screen.getByRole("button", { name: /音声ファイルを保存/ }),
     );
 
     expect(onExport).toHaveBeenCalledWith({
@@ -87,6 +97,7 @@ describe("App", () => {
         insightsAvailable={false}
         transcriptAvailable
         savedOutput={null}
+        error={null}
       />,
     );
 
@@ -96,7 +107,7 @@ describe("App", () => {
       }).disabled,
     ).toBe(true);
     fireEvent.click(
-      screen.getByRole("button", { name: /会話音声を保存/ }),
+      screen.getByRole("button", { name: /音声ファイルを保存/ }),
     );
     expect(onExport).toHaveBeenCalledWith({
       summary: false,
@@ -108,16 +119,77 @@ describe("App", () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("heading", { name: "相手の発言" }),
+      await screen.findByRole("region", { name: "SPEAKER OUTPUT" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "自分の発言" }),
+      screen.getByRole("region", { name: "MICROPHONE INPUT" }),
     ).toBeTruthy();
-    expect(screen.getByText("English → 日本語")).toBeTruthy();
-    expect(screen.getByText("日本語 → English")).toBeTruthy();
+    expect(screen.getAllByText("English → 日本語")).toHaveLength(2);
     expect(
-      screen.getByRole<HTMLButtonElement>("button", { name: "会話を開始" })
+      screen.getByRole("heading", { name: "Realtime Translator" }),
+    ).toBeTruthy();
+    expect(screen.queryByText("相手の発言")).toBeNull();
+    expect(screen.queryByText("自分の発言")).toBeNull();
+    expect(
+      screen.getByRole<HTMLButtonElement>("button", {
+        name: "START CONVERSATION",
+      })
         .disabled,
     ).toBe(true);
   });
+
+  it("shows consent only before a session starts or after an error", () => {
+    expect(shouldShowConsentNotice("idle")).toBe(true);
+    expect(shouldShowConsentNotice("error")).toBe(true);
+    for (const phase of [
+      "starting",
+      "running",
+      "pausing",
+      "paused",
+      "resuming",
+      "stopping",
+      "finished",
+    ] as const) {
+      expect(shouldShowConsentNotice(phase)).toBe(false);
+    }
+  });
+
+  it("offers pause and end while running, then resume and end while paused", () => {
+    const onPause = vi.fn();
+    const onResume = vi.fn();
+    const onStop = vi.fn();
+    const { rerender } = render(
+      <SessionControls
+        phase="running"
+        canStart={false}
+        onStart={vi.fn()}
+        onPause={onPause}
+        onResume={onResume}
+        onStop={onStop}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "STOP" }));
+    expect(onPause).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: "END SESSION" }),
+    ).toBeTruthy();
+
+    rerender(
+      <SessionControls
+        phase="paused"
+        canStart={false}
+        onStart={vi.fn()}
+        onPause={onPause}
+        onResume={onResume}
+        onStop={onStop}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "RESUME" }));
+    expect(onResume).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: "END SESSION" }),
+    ).toBeTruthy();
+  });
+
 });

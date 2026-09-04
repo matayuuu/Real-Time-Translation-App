@@ -69,8 +69,8 @@ describe("ConversationInsightsService", () => {
           source: "microphone",
           startedAt: "2026-09-04T08:00:01.000Z",
           elapsedMs: 2_000,
-          original: "明日、見積書を送ります。",
-          translation: "I will send the quote tomorrow.",
+          original: "I will send the quote tomorrow.",
+          translation: "明日、見積書を送ります。",
         },
         {
           source: "speaker",
@@ -160,8 +160,8 @@ describe("ConversationInsightsService", () => {
           {
             source: "microphone",
             startedAt: "2026-09-04T08:00:00.000Z",
-            original: "確認します。",
-            translation: "I will check.",
+            original: "I will check.",
+            translation: "確認します。",
           },
         ],
         { summary: true, nextActions: false },

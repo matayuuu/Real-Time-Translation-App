@@ -1,8 +1,9 @@
 {
-  "name": "teams-realtime-translator",
-  "version": "0.1.0",
+  "name": "realtime-translator",
+  "productName": "Realtime Translator",
+  "version": "0.1.3",
   "private": true,
-  "description": "Windows companion app for bilingual Microsoft Teams captions and local MP3 recording",
+  "description": "Windows companion app for bilingual realtime captions and local MP3 recording",
   "main": "out/main/index.js",
   "author": "matayuuu",
   "license": "MIT",
@@ -23,6 +24,7 @@
   "dependencies": {
     "@azure/identity": "4.13.2",
     "@breezystack/lamejs": "1.2.7",
+    "electron-updater": "^6.8.9",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
@@ -42,9 +44,16 @@
     "vitest": "4.1.11"
   },
   "build": {
-    "appId": "com.matayuuu.teamsrealtimetranslator",
-    "productName": "Teams Realtime Translator",
+    "appId": "com.matayuuu.realtimetranslator",
+    "productName": "Realtime Translator",
     "asar": true,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "matayuuu",
+        "repo": "Real-Time-Translation-App"
+      }
+    ],
     "directories": {
       "output": "dist"
     },
@@ -53,6 +62,10 @@
       "package.json"
     ],
     "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      },
       {
         "from": "THIRD-PARTY-NOTICES.md",
         "to": "THIRD-PARTY-NOTICES.md"
@@ -63,6 +76,7 @@
       }
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         {
           "target": "nsis",

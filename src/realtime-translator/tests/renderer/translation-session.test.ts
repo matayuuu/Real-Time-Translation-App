@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTranscriptEvent } from "../../src/renderer/src/realtime/translation-session";
+import {
+  parseTranscriptEvent,
+  TranslationSession,
+} from "../../src/renderer/src/realtime/translation-session";
 
 describe("parseTranscriptEvent", () => {
   it("maps source transcript deltas", () => {
@@ -24,15 +27,36 @@ describe("parseTranscriptEvent", () => {
     expect(
       parseTranscriptEvent("microphone", {
         type: "session.output_transcript.delta",
-        delta: "Thank you.",
+        delta: "ありがとうございます。",
       }),
     ).toEqual({
       source: "microphone",
       side: "output",
       kind: "delta",
-      text: "Thank you.",
+      text: "ありがとうございます。",
     });
   });
+
+  it.each([
+    ["conversation.item.input_audio_transcription.delta", "input", "delta"],
+    ["session.input_transcript.completed", "input", "done"],
+    ["session.input_transcript.done", "input", "done"],
+    ["session.output_transcript.completed", "output", "done"],
+    ["response.output_text.delta", "output", "delta"],
+    ["response.output_audio_transcript.done", "output", "done"],
+  ] as const)(
+    "maps the documented %s event",
+    (type, side, kind) => {
+      expect(
+        parseTranscriptEvent("speaker", {
+          type,
+          transcript: "Transcript",
+          text: "Text",
+          delta: "Delta",
+        }),
+      ).toMatchObject({ source: "speaker", side, kind });
+    },
+  );
 
   it("uses elapsed time before distinct API item IDs for alignment", () => {
     expect(
@@ -76,5 +100,21 @@ describe("parseTranscriptEvent", () => {
     expect(
       parseTranscriptEvent("speaker", { type: "session.updated" }),
     ).toBeNull();
+  });
+
+  it("stops and resumes audio transmission without closing the session", () => {
+    const audioTrack = { enabled: true } as MediaStreamTrack;
+    const session = new TranslationSession("microphone", audioTrack, {
+      onState() {},
+      onTranscript() {},
+      onFinalize() {},
+      onError() {},
+    });
+
+    session.pause();
+    expect(audioTrack.enabled).toBe(false);
+
+    session.resume();
+    expect(audioTrack.enabled).toBe(true);
   });
 });

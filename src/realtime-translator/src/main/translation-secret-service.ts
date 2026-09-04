@@ -21,8 +21,7 @@ export class TranslationSecretService {
     context: RealtimeTranslationContext,
     request: TranslationSecretRequest,
   ): Promise<TranslationSessionSecret> {
-    const expectedLanguage = request.source === "speaker" ? "ja" : "en";
-    if (request.targetLanguage !== expectedLanguage) {
+    if (request.targetLanguage !== "ja") {
       throw new Error(
         `Invalid target language for ${request.source}: ${request.targetLanguage}.`,
       );

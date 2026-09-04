@@ -38,11 +38,15 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Test
         run: npm test
+      - name: Set continuous delivery version
+        if: github.event_name == 'push'
+        shell: pwsh
+        run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
       - name: Package Windows app
         run: npm run package
       - uses: actions/upload-artifact@v4
         with:
-          name: teams-realtime-translator-windows
+          name: realtime-translator-windows
           path: |
             src/realtime-translator/dist/*.exe
             src/realtime-translator/dist/*.yml
@@ -68,3 +72,35 @@ jobs:
         run: terraform -chdir=infra/realtime-translation init -backend=false
       - name: Validate Terraform
         run: terraform -chdir=infra/realtime-translation validate
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs:
+      - application
+      - infrastructure
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_VERSION: 0.1.${{ github.run_number }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: realtime-translator-windows
+          path: release
+      - name: Publish latest Windows release
+        shell: bash
+        run: |
+          tag="v${RELEASE_VERSION}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" release/*.exe release/latest.yml \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --latest
+          else
+            gh release create "$tag" release/*.exe release/latest.yml \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Realtime Translator ${RELEASE_VERSION}" \
+              --generate-notes \
+              --latest
+          fi
