@@ -110,7 +110,7 @@ function registerIpcHandlers(): void {
       if (
         !request ||
         !["speaker", "microphone"].includes(request.source) ||
-        !["en", "ja"].includes(request.targetLanguage)
+        request.targetLanguage !== "ja"
       ) {
         throw new Error("Invalid translation session request.");
       }

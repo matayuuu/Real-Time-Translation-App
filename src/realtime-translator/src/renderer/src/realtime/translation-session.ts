@@ -216,10 +216,9 @@ export class TranslationSession {
     this.streamSequence += 1;
     this.currentStreamId = `${this.source}-${this.streamSequence}`;
     this.inputTranscriptMissingSince = null;
-    const targetLanguage = this.source === "speaker" ? "ja" : "en";
     const secret = await window.desktop.translation.createSecret({
       source: this.source,
-      targetLanguage,
+      targetLanguage: "ja",
     });
     if (this.stopRequested) {
       return;

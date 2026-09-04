@@ -27,13 +27,13 @@ describe("parseTranscriptEvent", () => {
     expect(
       parseTranscriptEvent("microphone", {
         type: "session.output_transcript.delta",
-        delta: "Thank you.",
+        delta: "ありがとうございます。",
       }),
     ).toEqual({
       source: "microphone",
       side: "output",
       kind: "delta",
-      text: "Thank you.",
+      text: "ありがとうございます。",
     });
   });
 

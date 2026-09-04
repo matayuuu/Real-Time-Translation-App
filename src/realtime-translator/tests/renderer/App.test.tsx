@@ -4,8 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { DesktopBridge } from "../../src/shared/contracts";
 import {
   App,
+  ConversationPane,
   ExportPanel,
   SessionControls,
+  mergeTranscriptEntries,
   shouldShowConsentNotice,
 } from "../../src/renderer/src/App";
 
@@ -115,17 +117,15 @@ describe("App", () => {
     });
   });
 
-  it("shows separated bilingual panes and requires setup", async () => {
+  it("shows one bilingual conversation timeline and requires setup", async () => {
     render(<App />);
 
     expect(
-      await screen.findByRole("region", { name: "SPEAKER OUTPUT" }),
+      await screen.findByRole("region", { name: "会話タイムライン" }),
     ).toBeTruthy();
-    expect(
-      screen.getByRole("region", { name: "MICROPHONE INPUT" }),
-    ).toBeTruthy();
+    expect(screen.getByText("SPEAKER OUTPUT")).toBeTruthy();
+    expect(screen.getByText("MICROPHONE INPUT")).toBeTruthy();
     expect(screen.getByText("English → 日本語")).toBeTruthy();
-    expect(screen.getByText("日本語 → English")).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Realtime Translator" }),
     ).toBeTruthy();
@@ -137,6 +137,55 @@ describe("App", () => {
       })
         .disabled,
     ).toBe(true);
+  });
+
+  it("orders output left and input right in a shared timeline", () => {
+    const transcripts = {
+      speaker: [
+        {
+          id: "speaker-1",
+          original: "How are you?",
+          translation: "お元気ですか？",
+          originalFinal: true,
+          translationFinal: true,
+          startedAt: "2026-09-04T08:00:02.000Z",
+          elapsedMs: 1_000,
+        },
+      ],
+      microphone: [
+        {
+          id: "microphone-1",
+          original: "I am doing well.",
+          translation: "元気です。",
+          originalFinal: true,
+          translationFinal: true,
+          startedAt: "2026-09-04T08:00:01.000Z",
+          elapsedMs: 2_000,
+        },
+      ],
+    };
+    expect(
+      mergeTranscriptEntries(transcripts).map((entry) => entry.source),
+    ).toEqual(["speaker", "microphone"]);
+
+    render(
+      <ConversationPane
+        transcripts={transcripts}
+        connections={{ speaker: "connected", microphone: "connected" }}
+        levels={{ speaker: 0.25, microphone: 0.5 }}
+        sourceErrors={{ speaker: null, microphone: null }}
+      />,
+    );
+
+    const messages = screen.getAllByRole("article");
+    expect(messages[0]?.classList.contains("conversation-message--speaker")).toBe(
+      true,
+    );
+    expect(
+      messages[1]?.classList.contains("conversation-message--microphone"),
+    ).toBe(true);
+    expect(screen.getByText("お元気ですか？")).toBeTruthy();
+    expect(screen.getByText("元気です。")).toBeTruthy();
   });
 
   it("shows consent only before a session starts or after an error", () => {
