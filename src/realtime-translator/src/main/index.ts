@@ -201,8 +201,8 @@ async function createWindow(): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
-    minWidth: 1040,
-    minHeight: 700,
+    minWidth: 800,
+    minHeight: 500,
     show: false,
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
