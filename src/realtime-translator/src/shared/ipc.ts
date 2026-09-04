@@ -5,7 +5,7 @@ export const IPC_CHANNELS = {
   recordingStart: "recording:start",
   recordingAppend: "recording:append",
   recordingStop: "recording:stop",
-  recordingSave: "recording:save",
+  recordingExport: "recording:export",
   recordingDiscard: "recording:discard",
   appEvent: "app:event",
 } as const;

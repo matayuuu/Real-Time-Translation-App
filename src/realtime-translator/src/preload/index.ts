@@ -3,9 +3,8 @@ import { contextBridge, ipcRenderer } from "electron";
 import type {
   AppEvent,
   DesktopBridge,
+  ExportRecordingRequest,
   RecordingAppendPayload,
-  RecordingTrack,
-  SaveRecordingRequest,
   TranslationSecretRequest,
 } from "../shared/contracts";
 import { IPC_CHANNELS } from "../shared/ipc";
@@ -26,8 +25,8 @@ const bridge: DesktopBridge = {
       ipcRenderer.invoke(IPC_CHANNELS.recordingAppend, payload),
     stop: (sessionId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.recordingStop, sessionId),
-    save: (request: SaveRecordingRequest) =>
-      ipcRenderer.invoke(IPC_CHANNELS.recordingSave, request),
+    export: (request: ExportRecordingRequest) =>
+      ipcRenderer.invoke(IPC_CHANNELS.recordingExport, request),
     discard: (sessionId: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.recordingDiscard, sessionId),
   },
@@ -43,6 +42,3 @@ const bridge: DesktopBridge = {
 };
 
 contextBridge.exposeInMainWorld("desktop", bridge);
-
-void (null as unknown as RecordingTrack);
-void (null as unknown as SaveRecordingRequest);

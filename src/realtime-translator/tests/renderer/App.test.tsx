@@ -1,8 +1,8 @@
-import { render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopBridge } from "../../src/shared/contracts";
-import { App } from "../../src/renderer/src/App";
+import { App, ExportPanel } from "../../src/renderer/src/App";
 
 const bridge: DesktopBridge = {
   configuration: {
@@ -16,7 +16,7 @@ const bridge: DesktopBridge = {
     start: vi.fn(),
     append: vi.fn(),
     stop: vi.fn(),
-    save: vi.fn(),
+    export: vi.fn(),
     discard: vi.fn(),
   },
   events: {
@@ -25,6 +25,8 @@ const bridge: DesktopBridge = {
 };
 
 describe("App", () => {
+  afterEach(cleanup);
+
   beforeEach(() => {
     Object.defineProperty(window, "desktop", {
       configurable: true,
@@ -35,6 +37,70 @@ describe("App", () => {
       value: {
         enumerateDevices: vi.fn().mockResolvedValue([]),
       },
+    });
+  });
+
+  it("exports one mixed recording with the selected Markdown options", () => {
+    const onExport = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ExportPanel
+        result={{ sessionId: "session-1", byteLength: 512 }}
+        onExport={onExport}
+        onDiscard={vi.fn().mockResolvedValue(undefined)}
+        exporting={false}
+        discarding={false}
+        insightsAvailable
+        transcriptAvailable
+        savedOutput={null}
+      />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /日本語で会話を要約/ }),
+    );
+    fireEvent.click(
+      screen.getByRole("checkbox", {
+        name: /日本語で Next Actions を作成/,
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: /会話音声を保存/ }),
+    );
+
+    expect(onExport).toHaveBeenCalledWith({
+      summary: true,
+      nextActions: true,
+    });
+    expect(screen.queryByText("相手の音声")).toBeNull();
+    expect(screen.queryByText("自分の音声")).toBeNull();
+  });
+
+  it("keeps MP3 export available when Luna is not configured", () => {
+    const onExport = vi.fn().mockResolvedValue(undefined);
+    render(
+      <ExportPanel
+        result={{ sessionId: "session-1", byteLength: 512 }}
+        onExport={onExport}
+        onDiscard={vi.fn().mockResolvedValue(undefined)}
+        exporting={false}
+        discarding={false}
+        insightsAvailable={false}
+        transcriptAvailable
+        savedOutput={null}
+      />,
+    );
+
+    expect(
+      screen.getByRole<HTMLInputElement>("checkbox", {
+        name: /日本語で会話を要約/,
+      }).disabled,
+    ).toBe(true);
+    fireEvent.click(
+      screen.getByRole("button", { name: /会話音声を保存/ }),
+    );
+    expect(onExport).toHaveBeenCalledWith({
+      summary: false,
+      nextActions: false,
     });
   });
 

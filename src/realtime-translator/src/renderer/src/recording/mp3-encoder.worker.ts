@@ -2,41 +2,32 @@
 
 import { Mp3Encoder } from "@breezystack/lamejs";
 
-import type { RecordingTrack } from "@shared/contracts";
-
 import { floatToPcm16 } from "./pcm";
-
-type EncoderMap = Record<RecordingTrack, Mp3Encoder>;
 
 type WorkerInput =
   | { type: "initialize"; sampleRate: number; bitrate: number }
-  | {
-      type: "encode";
-      speaker: Float32Array;
-      microphone: Float32Array;
-      mix: Float32Array;
-    }
+  | { type: "encode"; samples: Float32Array }
   | { type: "flush" };
 
 type WorkerOutput =
   | { type: "ready" }
-  | { type: "chunk"; track: RecordingTrack; chunk: Uint8Array }
+  | { type: "chunk"; chunk: Uint8Array }
   | { type: "done" }
   | { type: "error"; message: string };
 
-let encoders: EncoderMap | null = null;
+let encoder: Mp3Encoder | null = null;
 
 function emit(message: WorkerOutput, transfer: Transferable[] = []): void {
   self.postMessage(message, { transfer });
 }
 
-function emitEncoded(track: RecordingTrack, bytes: Int8Array): void {
+function emitEncoded(bytes: Int8Array): void {
   if (bytes.length === 0) {
     return;
   }
   const chunk = new Uint8Array(bytes.length);
   chunk.set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
-  emit({ type: "chunk", track, chunk }, [chunk.buffer]);
+  emit({ type: "chunk", chunk }, [chunk.buffer]);
 }
 
 self.onmessage = (event: MessageEvent<WorkerInput>): void => {
@@ -50,38 +41,22 @@ self.onmessage = (event: MessageEvent<WorkerInput>): void => {
       ) {
         throw new Error(`Unsupported sample rate: ${message.sampleRate}.`);
       }
-      encoders = {
-        speaker: new Mp3Encoder(1, message.sampleRate, message.bitrate),
-        microphone: new Mp3Encoder(1, message.sampleRate, message.bitrate),
-        mix: new Mp3Encoder(1, message.sampleRate, message.bitrate),
-      };
+      encoder = new Mp3Encoder(1, message.sampleRate, message.bitrate);
       emit({ type: "ready" });
       return;
     }
 
-    if (!encoders) {
+    if (!encoder) {
       throw new Error("MP3 encoder is not initialized.");
     }
 
     if (message.type === "encode") {
-      const batches: Record<RecordingTrack, Float32Array> = {
-        speaker: message.speaker,
-        microphone: message.microphone,
-        mix: message.mix,
-      };
-      for (const track of Object.keys(batches) as RecordingTrack[]) {
-        emitEncoded(
-          track,
-          encoders[track].encodeBuffer(floatToPcm16(batches[track])),
-        );
-      }
+      emitEncoded(encoder.encodeBuffer(floatToPcm16(message.samples)));
       return;
     }
 
-    for (const track of Object.keys(encoders) as RecordingTrack[]) {
-      emitEncoded(track, encoders[track].flush());
-    }
-    encoders = null;
+    emitEncoded(encoder.flush());
+    encoder = null;
     emit({ type: "done" });
   } catch (error) {
     emit({

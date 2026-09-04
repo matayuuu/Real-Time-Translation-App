@@ -30,6 +30,8 @@ def test_preflight_is_read_only_and_checks_exact_quota_requirements() -> None:
     assert "no incremental quota is required" in text
     assert "gpt-realtime-translate" in text
     assert "gpt-realtime-whisper" in text
+    assert "gpt-5.6-luna" in text
+    assert "2026-07-09" in text
     assert "az provider register" not in text
     assert "az group create" not in text
     assert "az role assignment create" not in text
@@ -58,6 +60,8 @@ def test_setup_requires_preflight_shows_saved_plan_and_merges_context_atomically
     assert "foundry_project_endpoint" in text
     assert "model_retirement_date" in text
     assert 'sku             = "GlobalStandard"' in text
+    assert "insights_deployment_name" in text
+    assert 'model_name      = "gpt-5.6-luna"' in text
 
 
 def test_destroy_uses_isolated_state_and_cleans_context_only_after_apply() -> None:

@@ -1,5 +1,4 @@
 export type AudioSource = "speaker" | "microphone";
-export type RecordingTrack = AudioSource | "mix";
 
 export interface ModelDeploymentContext {
   deployment_name: string;
@@ -22,6 +21,7 @@ export interface RealtimeTranslationContext {
   foundry_project_endpoint: string;
   translation: ModelDeploymentContext;
   transcription: ModelDeploymentContext;
+  insights?: ModelDeploymentContext;
   model_retirement_date: string;
 }
 
@@ -49,24 +49,37 @@ export interface RecordingSessionInfo {
 
 export interface RecordingAppendPayload {
   sessionId: string;
-  track: RecordingTrack;
   chunk: Uint8Array;
 }
 
 export interface RecordingStopResult {
   sessionId: string;
-  tracks: Record<RecordingTrack, { byteLength: number }>;
+  byteLength: number;
 }
 
-export interface SaveRecordingRequest {
+export interface ConversationExportOptions {
+  summary: boolean;
+  nextActions: boolean;
+}
+
+export interface ConversationTranscriptEntry {
+  source: AudioSource;
+  startedAt: string;
+  elapsedMs?: number;
+  original: string;
+  translation: string;
+}
+
+export interface ExportRecordingRequest {
   sessionId: string;
-  track: RecordingTrack;
-  suggestedName: string;
+  options: ConversationExportOptions;
+  transcript: ConversationTranscriptEntry[];
 }
 
-export interface SaveRecordingResult {
+export interface ExportRecordingResult {
   canceled: boolean;
-  filePath?: string;
+  outputPath?: string;
+  kind?: "audio" | "bundle";
 }
 
 export type AppEvent =
@@ -91,7 +104,7 @@ export interface DesktopBridge {
     start(sampleRate: number): Promise<RecordingSessionInfo>;
     append(payload: RecordingAppendPayload): Promise<void>;
     stop(sessionId: string): Promise<RecordingStopResult>;
-    save(request: SaveRecordingRequest): Promise<SaveRecordingResult>;
+    export(request: ExportRecordingRequest): Promise<ExportRecordingResult>;
     discard(sessionId: string): Promise<void>;
   };
   events: {

@@ -39,8 +39,8 @@ class CaptureProcessor extends AudioWorkletProcessor {
           mix[index] = Math.max(-1, Math.min(1, value));
         }
         this.port.postMessage(
-          { speaker, microphone, mix },
-          [speaker.buffer, microphone.buffer, mix.buffer],
+          { mix },
+          [mix.buffer],
         );
         this.speaker = new Float32Array(this.batchSize);
         this.microphone = new Float32Array(this.batchSize);

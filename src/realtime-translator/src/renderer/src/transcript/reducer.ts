@@ -9,6 +9,7 @@ export interface TranscriptEntry {
   originalFinal: boolean;
   translationFinal: boolean;
   startedAt: string;
+  elapsedMs?: number;
 }
 
 export interface TranscriptState {
@@ -26,7 +27,7 @@ export type TranscriptAction =
   | { type: "clear" }
   | { type: "finalize-source"; source: AudioSource };
 
-function createEntry(id: string): TranscriptEntry {
+function createEntry(id: string, elapsedMs?: number): TranscriptEntry {
   return {
     id,
     original: "",
@@ -34,6 +35,7 @@ function createEntry(id: string): TranscriptEntry {
     originalFinal: false,
     translationFinal: false,
     startedAt: new Date().toISOString(),
+    ...(elapsedMs !== undefined ? { elapsedMs } : {}),
   };
 }
 
@@ -74,7 +76,7 @@ function reduceSource(
     const id =
       event.itemId ??
       `${event.source}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    next.push(createEntry(id));
+    next.push(createEntry(id, event.elapsedMs));
     index = next.length - 1;
   } else if (index < 0) {
     index = next.length - 1;
@@ -84,6 +86,12 @@ function reduceSource(
   if (!entry) {
     return entries;
   }
+  if (
+    event.elapsedMs !== undefined &&
+    (entry.elapsedMs === undefined || event.elapsedMs < entry.elapsedMs)
+  ) {
+    entry.elapsedMs = event.elapsedMs;
+  }
   const isDone = event.kind === "done";
   if (event.side === "input") {
     entry.original = appendText(entry.original, event.text, isDone);
@@ -92,7 +100,7 @@ function reduceSource(
     entry.translation = appendText(entry.translation, event.text, isDone);
     entry.translationFinal = isDone;
   }
-  return next.slice(-200);
+  return next;
 }
 
 export function transcriptReducer(

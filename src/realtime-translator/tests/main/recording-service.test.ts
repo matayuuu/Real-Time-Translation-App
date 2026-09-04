@@ -4,16 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
-
-const { showSaveDialog } = vi.hoisted(() => ({
-  showSaveDialog: vi.fn(),
-}));
-vi.mock("electron", () => ({
-  dialog: {
-    showSaveDialog,
-  },
-}));
+import { afterEach, describe, expect, it } from "vitest";
 
 import { RecordingService } from "../../src/main/recording-service";
 
@@ -25,7 +16,6 @@ afterEach(async () => {
       rm(path, { force: true, recursive: true }),
     ),
   );
-  showSaveDialog.mockReset();
 });
 
 describe("RecordingService", () => {
@@ -39,33 +29,22 @@ describe("RecordingService", () => {
     await Promise.all([
       service.append({
         sessionId: session.sessionId,
-        track: "speaker",
         chunk: new Uint8Array([1, 2]),
       }),
       service.append({
         sessionId: session.sessionId,
-        track: "speaker",
         chunk: new Uint8Array([3, 4]),
       }),
     ]);
     const result = await service.stop(session.sessionId);
-    expect(result.tracks.speaker.byteLength).toBe(4);
+    expect(result.byteLength).toBe(4);
 
     const savedPath = join(directory, "saved.mp3");
-    showSaveDialog.mockResolvedValue({ canceled: false, filePath: savedPath });
-    await service.save({
-      sessionId: session.sessionId,
-      track: "speaker",
-      suggestedName: "speaker.mp3",
-    });
+    await service.copy(session.sessionId, savedPath);
     expect(Array.from(await readFile(savedPath))).toEqual([1, 2, 3, 4]);
     await service.discard(session.sessionId);
     await expect(
-      service.save({
-        sessionId: session.sessionId,
-        track: "speaker",
-        suggestedName: "speaker.mp3",
-      }),
+      service.copy(session.sessionId, savedPath),
     ).rejects.toThrow("Unknown recording session");
   });
 
@@ -80,7 +59,6 @@ describe("RecordingService", () => {
     await expect(
       service.append({
         sessionId: session.sessionId,
-        track: "mix",
         chunk: new Uint8Array([1]),
       }),
     ).rejects.toThrow("already stopped");

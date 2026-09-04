@@ -2,9 +2,10 @@
 
 This is an isolated Terraform root for the Windows Teams realtime translation
 companion app. It reads an existing resource group and creates only an
-AIServices account, a Basic Foundry project, two serialized deployments, and
-resource-scoped access assignments. Local Terraform state is sensitive and is
-intentionally ignored by Git.
+AIServices account, a Basic Foundry project, three serialized deployments, and
+resource-scoped access assignments. The deployments provide realtime
+translation, realtime transcription, and post-conversation insights. Local
+Terraform state is sensitive and is intentionally ignored by Git.
 
 This root deliberately uses **AzAPI only**. AzureRM v5 authenticates by running
 `az account list`, which can fail for Windows Azure CLI profiles whose tenant

@@ -13,12 +13,14 @@ import {
 } from "electron";
 
 import type {
+  ExportRecordingRequest,
   RecordingAppendPayload,
-  SaveRecordingRequest,
   TranslationSecretRequest,
 } from "../shared/contracts";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { ConversationInsightsService } from "./conversation-insights-service";
 import { ContextService } from "./context-service";
+import { RecordingExportService } from "./recording-export-service";
 import { RecordingService } from "./recording-service";
 import { TranslationSecretService } from "./translation-secret-service";
 
@@ -43,7 +45,9 @@ const repositoryContextPath = isDevelopment
 let mainWindow: BrowserWindow | null = null;
 let contextService: ContextService;
 let recordingService: RecordingService;
+let recordingExportService: RecordingExportService;
 const translationSecretService = new TranslationSecretService();
+const conversationInsightsService = new ConversationInsightsService();
 
 function trustedSender(url: string): boolean {
   if (isDevelopment && process.env.ELECTRON_RENDERER_URL) {
@@ -126,10 +130,10 @@ function registerIpcHandlers(): void {
     },
   );
   ipcMain.handle(
-    IPC_CHANNELS.recordingSave,
-    async (event, request: SaveRecordingRequest) => {
+    IPC_CHANNELS.recordingExport,
+    async (event, request: ExportRecordingRequest) => {
       requireTrustedSender(event);
-      return recordingService.save(request);
+      return recordingExportService.export(request);
     },
   );
   ipcMain.handle(
@@ -244,6 +248,11 @@ if (!hasSingleInstanceLock) {
     );
     recordingService = new RecordingService(
       join(app.getPath("userData"), "recordings"),
+    );
+    recordingExportService = new RecordingExportService(
+      recordingService,
+      conversationInsightsService,
+      () => contextService.get()?.context ?? null,
     );
 
     let initializationError: string | null = null;
