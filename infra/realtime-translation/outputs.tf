@@ -37,6 +37,10 @@ output "transcription_deployment_name" {
   value = azapi_resource.transcription_deployment.name
 }
 
+output "insights_deployment_name" {
+  value = azapi_resource.insights_deployment.name
+}
+
 output "model_retirement_date" {
   value       = var.model_retirement_date
   description = "Review model availability before this date; deployments are not automatically migrated."

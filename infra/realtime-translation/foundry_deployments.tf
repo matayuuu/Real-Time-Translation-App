@@ -43,3 +43,25 @@ resource "azapi_resource" "transcription_deployment" {
     }
   }
 }
+
+resource "azapi_resource" "insights_deployment" {
+  type      = "Microsoft.CognitiveServices/accounts/deployments@2026-05-01"
+  name      = var.insights_model.deployment_name
+  parent_id = azapi_resource.ai_services.id
+
+  depends_on = [azapi_resource.transcription_deployment]
+
+  body = {
+    sku = {
+      name     = var.insights_model.sku
+      capacity = var.insights_model.capacity
+    }
+    properties = {
+      model = {
+        format  = "OpenAI"
+        name    = var.insights_model.name
+        version = var.insights_model.version
+      }
+    }
+  }
+}

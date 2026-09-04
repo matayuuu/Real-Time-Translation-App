@@ -91,6 +91,10 @@ export function parseRealtimeTranslationContext(
       "realtime_translation.openai_endpoint must use an Azure OpenAI HTTPS host.",
     );
   }
+  const insights =
+    value.insights === undefined
+      ? undefined
+      : parseDeployment(value.insights, "realtime_translation.insights");
 
   return {
     schema_version: 1,
@@ -135,6 +139,7 @@ export function parseRealtimeTranslationContext(
       value.transcription,
       "realtime_translation.transcription",
     ),
+    ...(insights ? { insights } : {}),
     model_retirement_date: requireString(
       value,
       "model_retirement_date",

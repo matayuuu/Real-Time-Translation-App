@@ -99,5 +99,22 @@ describe("transcriptReducer", () => {
       originalFinal: true,
       translationFinal: true,
     });
+    expect(second.speaker[1]?.elapsedMs).toBe(16_000);
+  });
+
+  it("retains the full transcript for post-conversation export", () => {
+    let state = EMPTY_TRANSCRIPTS;
+    for (let index = 0; index < 205; index += 1) {
+      state = transcriptReducer(state, {
+        source: "speaker",
+        side: "input",
+        kind: "done",
+        text: `Entry ${index}`,
+        itemId: `speaker-1-${index}`,
+        elapsedMs: index * 15_000,
+      });
+    }
+
+    expect(state.speaker).toHaveLength(205);
   });
 });

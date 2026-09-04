@@ -33,6 +33,13 @@ function validContext(): Record<string, unknown> {
         sku: "GlobalStandard",
         capacity: 5,
       },
+      insights: {
+        deployment_name: "gpt-5.6-luna",
+        model_name: "gpt-5.6-luna",
+        model_version: "2026-07-09",
+        sku: "GlobalStandard",
+        capacity: 30,
+      },
       model_retirement_date: "2027-05-06",
     },
   };
@@ -47,6 +54,20 @@ describe("parseRealtimeTranslationContext", () => {
     );
     expect(result.translation.capacity).toBe(5);
     expect(result.transcription.deployment_name).toBe("gpt-realtime-whisper");
+    expect(result.insights?.deployment_name).toBe("gpt-5.6-luna");
+  });
+
+  it("keeps an older context usable without the optional insights model", () => {
+    const input = validContext();
+    const realtime = input.realtime_translation as Record<string, unknown>;
+    delete realtime.insights;
+
+    const result = parseRealtimeTranslationContext(input);
+
+    expect(result.insights).toBeUndefined();
+    expect(result.translation.deployment_name).toBe(
+      "gpt-realtime-translate",
+    );
   });
 
   it("rejects incomplete setup state", () => {

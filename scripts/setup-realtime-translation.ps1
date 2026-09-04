@@ -165,6 +165,13 @@ $realtimeTranslation = [pscustomobject]@{
         sku             = "GlobalStandard"
         capacity        = 5
     }
+    insights = [pscustomobject]@{
+        deployment_name = $outputs.insights_deployment_name.value
+        model_name      = "gpt-5.6-luna"
+        model_version   = "2026-07-09"
+        sku             = "GlobalStandard"
+        capacity        = 30
+    }
     model_retirement_date = $outputs.model_retirement_date.value
 }
 $context | Add-Member -MemberType NoteProperty -Name "realtime_translation" -Value $realtimeTranslation -Force

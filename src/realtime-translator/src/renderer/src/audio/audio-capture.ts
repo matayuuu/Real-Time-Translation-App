@@ -9,8 +9,6 @@ export interface CapturedAudio {
 }
 
 export interface PcmBatch {
-  speaker: Float32Array;
-  microphone: Float32Array;
   mix: Float32Array;
 }
 

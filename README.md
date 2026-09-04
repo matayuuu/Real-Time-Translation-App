@@ -9,7 +9,8 @@ Teams のプラグインや会議ボットではありません。PC のシス�
 - システム音声: 英語の文字起こしと日本語訳
 - マイク音声: 日本語の文字起こしと英語訳
 - 2 系統を並べたリアルタイム transcript
-- 相手、自分、会話全体の 3 種類の MP3 保存
+- 相手と自分を混ぜた MP3 の一意名保存
+- 日本語の会話要約と Next Actions の Markdown 出力（任意）
 - Microsoft Entra ID / Azure RBAC による keyless 接続
 - Terraform と PowerShell による Azure リソースの setup / cleanup
 
@@ -40,6 +41,9 @@ az account set --subscription <SUBSCRIPTION_ID>
 setup は Azure 環境を検査して Terraform plan を表示し、明示的に `APPLY` と入力した場合
 だけリソースを作成します。生成される `.realtime-translation/context.json` はローカル専用で、
 Git には保存されません。
+
+既存環境から更新する場合も setup を再実行し、Markdown 生成用の `gpt-5.6-luna`
+deployment が plan に含まれることを確認してください。
 
 ## 開発とパッケージ化
 

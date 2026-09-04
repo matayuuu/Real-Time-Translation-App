@@ -32,6 +32,13 @@ $requestedModels = @(
         version         = "2026-05-06"
         sku             = "GlobalStandard"
         capacity        = 5
+    },
+    [pscustomobject]@{
+        deployment_name = "gpt-5.6-luna"
+        name            = "gpt-5.6-luna"
+        version         = "2026-07-09"
+        sku             = "GlobalStandard"
+        capacity        = 30
     }
 )
 

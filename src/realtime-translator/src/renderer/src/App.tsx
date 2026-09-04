@@ -10,8 +10,9 @@ import {
 import type {
   AppConfiguration,
   AudioSource,
+  ConversationExportOptions,
+  ConversationTranscriptEntry,
   RecordingStopResult,
-  RecordingTrack,
 } from "@shared/contracts";
 
 import {
@@ -38,6 +39,8 @@ type AppPhase =
   | "stopping"
   | "finished"
   | "error";
+
+const MAX_VISIBLE_TRANSCRIPT_ENTRIES = 200;
 
 const INITIAL_CONNECTIONS: Record<
   AudioSource,
@@ -162,7 +165,7 @@ function TranscriptPane({
             <p>会話を開始すると原文と訳文がここに表示されます。</p>
           </div>
         ) : (
-          entries.map((entry) => (
+          entries.slice(-MAX_VISIBLE_TRANSCRIPT_ENTRIES).map((entry) => (
             <article className="utterance" key={entry.id}>
               <time>{formatTime(entry.startedAt)}</time>
               <div className="utterance__part">
@@ -192,77 +195,122 @@ function TranscriptPane({
 
 interface ExportPanelProps {
   result: RecordingStopResult;
-  onSave(track: RecordingTrack): Promise<void>;
+  onExport(options: ConversationExportOptions): Promise<void>;
   onDiscard(): Promise<void>;
-  savingTrack: RecordingTrack | null;
+  exporting: boolean;
   discarding: boolean;
+  insightsAvailable: boolean;
+  transcriptAvailable: boolean;
+  savedOutput: string | null;
 }
 
-function ExportPanel({
+export function ExportPanel({
   result,
-  onSave,
+  onExport,
   onDiscard,
-  savingTrack,
+  exporting,
   discarding,
+  insightsAvailable,
+  transcriptAvailable,
+  savedOutput,
 }: ExportPanelProps): React.JSX.Element {
-  const exports: Array<{
-    track: RecordingTrack;
-    title: string;
-    detail: string;
-  }> = [
-    {
-      track: "speaker",
-      title: "相手の音声",
-      detail: "スピーカー出力のみ",
-    },
-    {
-      track: "microphone",
-      title: "自分の音声",
-      detail: "マイク入力のみ",
-    },
-    {
-      track: "mix",
-      title: "会話全体",
-      detail: "相手と自分をミックス",
-    },
-  ];
+  const [summary, setSummary] = useState(false);
+  const [nextActions, setNextActions] = useState(false);
+  const documentsAvailable = insightsAvailable && transcriptAvailable;
+  const busy = exporting || discarding;
+
+  useEffect(() => {
+    if (!documentsAvailable) {
+      setSummary(false);
+      setNextActions(false);
+    }
+  }, [documentsAvailable]);
+
+  const options: ConversationExportOptions = { summary, nextActions };
+  const bundleRequested = summary || nextActions;
 
   return (
-    <section className="export-panel" aria-labelledby="export-title">
-      <div>
+    <section
+      className="export-panel"
+      aria-labelledby="export-title"
+      aria-busy={busy}
+    >
+      <div className="export-panel__intro">
         <p className="eyebrow">LOCAL RECORDING</p>
-        <h2 id="export-title">MP3 を保存</h2>
+        <h2 id="export-title">会話ファイルを保存</h2>
         <p>
-          必要なファイルを保存後、一時録音を削除すると次の会話を開始できます。
+          相手と自分の音声を混ぜた MP3 を保存します。必要に応じて会話メモを追加できます。
         </p>
       </div>
       <div className="export-controls">
+        <fieldset className="export-options">
+          <legend>Markdown を追加</legend>
+          <label className="export-option">
+            <input
+              type="checkbox"
+              checked={summary}
+              disabled={busy || !documentsAvailable}
+              onChange={(event) => setSummary(event.target.checked)}
+            />
+            <span>
+              <strong>日本語で会話を要約</strong>
+              <small>概要、主な論点、決定事項、未解決事項</small>
+            </span>
+          </label>
+          <label className="export-option">
+            <input
+              type="checkbox"
+              checked={nextActions}
+              disabled={busy || !documentsAvailable}
+              onChange={(event) => setNextActions(event.target.checked)}
+            />
+            <span>
+              <strong>日本語で Next Actions を作成</strong>
+              <small>明示された行動、担当者、期限を整理</small>
+            </span>
+          </label>
+        </fieldset>
+        {!insightsAvailable ? (
+          <p className="export-hint">
+            Markdown を生成するには setup を再実行し、gpt-5.6-luna を追加してください。
+          </p>
+        ) : !transcriptAvailable ? (
+          <p className="export-hint">
+            Markdown を生成できる会話ログがありません。MP3 は保存できます。
+          </p>
+        ) : (
+          <p className="export-hint">
+            選択時だけ会話ログを Luna へ送信します。音声は追加送信しません。
+          </p>
+        )}
         <div className="export-actions">
-          {exports.map(({ track, title, detail }) => (
-            <button
-              className="export-button"
-              key={track}
-              type="button"
-              disabled={
-                savingTrack !== null ||
-                discarding ||
-                result.tracks[track].byteLength === 0
-              }
-              onClick={() => void onSave(track)}
-            >
-              <span>{savingTrack === track ? "保存中…" : title}</span>
-              <small>{detail}</small>
-            </button>
-          ))}
+          <button
+            className="export-button"
+            type="button"
+            disabled={busy || result.byteLength === 0}
+            onClick={() => void onExport(options)}
+          >
+            <span>{exporting ? "生成・保存中…" : "会話音声を保存"}</span>
+            <small>
+              {bundleRequested
+                ? "一意フォルダーに MP3 と Markdown を保存"
+                : "一意な名前で混合 MP3 を保存"}
+            </small>
+          </button>
+          <button
+            className="button button--discard"
+            type="button"
+            disabled={busy}
+            onClick={() => void onDiscard()}
+          >
+            {discarding ? "削除中…" : "一時録音を削除"}
+          </button>
         </div>
-        <button
-          className="button button--discard"
-          type="button"
-          disabled={savingTrack !== null || discarding}
-          onClick={() => void onDiscard()}
-        >
-          {discarding ? "削除中…" : "一時録音を削除"}
-        </button>
+        {savedOutput ? (
+          <p className="export-success" role="status">
+            保存しました: <span>{savedOutput}</span>
+          </p>
+        ) : null}
       </div>
     </section>
   );
@@ -290,8 +338,9 @@ export function App(): React.JSX.Element {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [recordingResult, setRecordingResult] =
     useState<RecordingStopResult | null>(null);
-  const [savingTrack, setSavingTrack] = useState<RecordingTrack | null>(null);
+  const [exportingRecording, setExportingRecording] = useState(false);
   const [discardingRecording, setDiscardingRecording] = useState(false);
+  const [savedOutput, setSavedOutput] = useState<string | null>(null);
   const [transcripts, dispatchTranscript] = useReducer(
     transcriptReducer,
     EMPTY_TRANSCRIPTS,
@@ -412,6 +461,7 @@ export function App(): React.JSX.Element {
     setSourceErrors({ speaker: null, microphone: null });
     setConnections(INITIAL_CONNECTIONS);
     setRecordingResult(null);
+    setSavedOutput(null);
     dispatchTranscript({ type: "clear" });
 
     try {
@@ -496,28 +546,53 @@ export function App(): React.JSX.Element {
     setPhase(result ? "finished" : "error");
   };
 
-  const saveRecording = async (track: RecordingTrack): Promise<void> => {
+  const exportRecording = async (
+    options: ConversationExportOptions,
+  ): Promise<void> => {
     if (!recordingResult) {
       return;
     }
-    const names: Record<RecordingTrack, string> = {
-      speaker: "speaker.mp3",
-      microphone: "microphone.mp3",
-      mix: "conversation-mix.mp3",
-    };
 
-    setSavingTrack(track);
+    const includeTranscript = options.summary || options.nextActions;
+    const transcript: ConversationTranscriptEntry[] = includeTranscript
+      ? [
+          ...transcripts.speaker.map((entry) => ({
+            source: "speaker" as const,
+            startedAt: entry.startedAt,
+            ...(entry.elapsedMs !== undefined
+              ? { elapsedMs: entry.elapsedMs }
+              : {}),
+            original: entry.original,
+            translation: entry.translation,
+          })),
+          ...transcripts.microphone.map((entry) => ({
+            source: "microphone" as const,
+            startedAt: entry.startedAt,
+            ...(entry.elapsedMs !== undefined
+              ? { elapsedMs: entry.elapsedMs }
+              : {}),
+            original: entry.original,
+            translation: entry.translation,
+          })),
+        ]
+      : [];
+
+    setExportingRecording(true);
+    setSavedOutput(null);
     setGlobalError(null);
     try {
-      await window.desktop.recording.save({
+      const result = await window.desktop.recording.export({
         sessionId: recordingResult.sessionId,
-        track,
-        suggestedName: names[track],
+        options,
+        transcript,
       });
+      if (!result.canceled && result.outputPath) {
+        setSavedOutput(result.outputPath);
+      }
     } catch (error) {
       setGlobalError(errorMessage(error));
     } finally {
-      setSavingTrack(null);
+      setExportingRecording(false);
     }
   };
 
@@ -530,6 +605,7 @@ export function App(): React.JSX.Element {
     try {
       await window.desktop.recording.discard(recordingResult.sessionId);
       setRecordingResult(null);
+      setSavedOutput(null);
       setElapsedSeconds(0);
       setPhase("idle");
     } catch (error) {
@@ -551,6 +627,14 @@ export function App(): React.JSX.Element {
     const { context } = configuration;
     return `${context.translation.model_name} · ${context.location}`;
   }, [configuration]);
+  const transcriptAvailable = useMemo(
+    () =>
+      [...transcripts.speaker, ...transcripts.microphone].some(
+        (entry) =>
+          entry.original.trim() !== "" || entry.translation.trim() !== "",
+      ),
+    [transcripts],
+  );
 
   return (
     <main>
@@ -587,7 +671,12 @@ export function App(): React.JSX.Element {
           <button
             className="button button--quiet"
             type="button"
-            disabled={phase === "running" || phase === "starting"}
+            disabled={
+              phase === "running" ||
+              phase === "starting" ||
+              exportingRecording ||
+              discardingRecording
+            }
             onClick={() => void chooseConfiguration()}
           >
             設定を選択
@@ -683,18 +772,21 @@ export function App(): React.JSX.Element {
       {recordingResult ? (
         <ExportPanel
           result={recordingResult}
-          onSave={saveRecording}
+          onExport={exportRecording}
           onDiscard={discardRecording}
-          savingTrack={savingTrack}
+          exporting={exportingRecording}
           discarding={discardingRecording}
+          insightsAvailable={Boolean(configuration?.context.insights)}
+          transcriptAvailable={transcriptAvailable}
+          savedOutput={savedOutput}
         />
       ) : null}
 
       <footer>
-        <span>AI 翻訳音声は再生しません。MP3 は端末内で生成されます。</span>
+        <span>AI 翻訳音声は再生しません。混合 MP3 は端末内で生成されます。</span>
         <span>
           {configuration
-            ? `モデル提供終了予定: ${configuration.context.model_retirement_date}`
+            ? `Realtime モデル提供終了予定: ${configuration.context.model_retirement_date}`
             : "Azure API key は使用しません"}
         </span>
       </footer>

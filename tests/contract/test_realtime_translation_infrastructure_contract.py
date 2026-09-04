@@ -56,11 +56,20 @@ def test_project_deployments_and_model_contract_are_approved_values() -> None:
 
     assert "Microsoft.CognitiveServices/accounts/projects@2026-05-01" in terraform
     assert 'project_name == "realtime-translation"' in variables
-    for name in ("gpt-realtime-translate", "gpt-realtime-whisper", "2026-05-06", "GlobalStandard"):
+    for name in (
+        "gpt-realtime-translate",
+        "gpt-realtime-whisper",
+        "gpt-5.6-luna",
+        "2026-05-06",
+        "2026-07-09",
+        "GlobalStandard",
+    ):
         assert name in variables
     assert re.search(r"capacity\s*=\s*5", variables)
+    assert re.search(r"capacity\s*=\s*30", variables)
     assert "depends_on = [azapi_resource.project]" in deployments
     assert "depends_on = [azapi_resource.translation_deployment]" in deployments
+    assert "depends_on = [azapi_resource.transcription_deployment]" in deployments
     assert 'model_retirement_date = "2027-05-06"' in _read("terraform.tfvars.example")
 
 

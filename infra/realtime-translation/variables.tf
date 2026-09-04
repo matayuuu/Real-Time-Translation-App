@@ -108,6 +108,35 @@ variable "transcription_model" {
   }
 }
 
+variable "insights_model" {
+  description = "Text model used to generate Japanese summaries and next actions."
+  type = object({
+    deployment_name = string
+    name            = string
+    version         = string
+    sku             = string
+    capacity        = number
+  })
+  default = {
+    deployment_name = "gpt-5.6-luna"
+    name            = "gpt-5.6-luna"
+    version         = "2026-07-09"
+    sku             = "GlobalStandard"
+    capacity        = 30
+  }
+
+  validation {
+    condition = (
+      var.insights_model.deployment_name == "gpt-5.6-luna" &&
+      var.insights_model.name == "gpt-5.6-luna" &&
+      var.insights_model.version == "2026-07-09" &&
+      var.insights_model.sku == "GlobalStandard" &&
+      var.insights_model.capacity >= 1 && var.insights_model.capacity <= 1000
+    )
+    error_message = "insights_model must use gpt-5.6-luna version 2026-07-09, GlobalStandard SKU, and capacity from 1 through 1000."
+  }
+}
+
 variable "model_retirement_date" {
   description = "Published retirement date for the approved realtime model versions; review before deploying after this date."
   type        = string

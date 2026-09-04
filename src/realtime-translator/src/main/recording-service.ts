@@ -8,25 +8,16 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, isAbsolute, join, relative, resolve } from "node:path";
-
-import { dialog } from "electron";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import type {
   RecordingAppendPayload,
   RecordingSessionInfo,
   RecordingStopResult,
-  RecordingTrack,
-  SaveRecordingRequest,
-  SaveRecordingResult,
 } from "../shared/contracts";
 
-const TRACKS: readonly RecordingTrack[] = [
-  "speaker",
-  "microphone",
-  "mix",
-];
 const MAX_CHUNK_BYTES = 1_048_576;
+const RECORDING_FILE_NAME = "conversation.mp3";
 
 interface RecordingSession {
   id: string;
@@ -35,10 +26,6 @@ interface RecordingSession {
   sampleRate: number;
   state: "recording" | "stopped";
   writeChain: Promise<void>;
-}
-
-function isTrack(value: string): value is RecordingTrack {
-  return TRACKS.includes(value as RecordingTrack);
 }
 
 export class RecordingService {
@@ -64,9 +51,7 @@ export class RecordingService {
     const directory = join(this.recordingsRoot, id);
     const startedAt = new Date().toISOString();
     await mkdir(directory, { recursive: false });
-    await Promise.all(
-      TRACKS.map((track) => writeFile(this.trackPath(directory, track), "")),
-    );
+    await writeFile(this.recordingPath(directory), "");
 
     this.sessions.set(id, {
       id,
@@ -81,12 +66,16 @@ export class RecordingService {
   }
 
   public async append(payload: RecordingAppendPayload): Promise<void> {
+    if (
+      !payload ||
+      typeof payload.sessionId !== "string" ||
+      payload.sessionId === ""
+    ) {
+      throw new Error("Invalid recording append payload.");
+    }
     const session = this.requireSession(payload.sessionId);
     if (session.state !== "recording") {
       throw new Error("Recording session has already stopped.");
-    }
-    if (!isTrack(payload.track)) {
-      throw new Error(`Unknown recording track: ${String(payload.track)}.`);
     }
     if (!(payload.chunk instanceof Uint8Array)) {
       throw new Error("Recording chunk must be a Uint8Array.");
@@ -102,7 +91,7 @@ export class RecordingService {
       payload.chunk.byteOffset,
       payload.chunk.byteLength,
     );
-    const path = this.trackPath(session.directory, payload.track);
+    const path = this.recordingPath(session.directory);
     session.writeChain = session.writeChain.then(async () => {
       await appendFile(path, bytes);
     });
@@ -114,48 +103,32 @@ export class RecordingService {
     await session.writeChain;
     session.state = "stopped";
 
-    const entries = await Promise.all(
-      TRACKS.map(async (track) => {
-        const fileStat = await stat(this.trackPath(session.directory, track));
-        return [track, { byteLength: fileStat.size }] as const;
-      }),
-    );
+    const fileStat = await stat(this.recordingPath(session.directory));
 
     return {
       sessionId,
-      tracks: Object.fromEntries(entries) as RecordingStopResult["tracks"],
+      byteLength: fileStat.size,
     };
   }
 
-  public async save(
-    request: SaveRecordingRequest,
-  ): Promise<SaveRecordingResult> {
-    const session = this.requireSession(request.sessionId);
+  public async copy(sessionId: string, destinationPath: string): Promise<void> {
+    if (
+      typeof destinationPath !== "string" ||
+      !isAbsolute(destinationPath)
+    ) {
+      throw new Error("Recording destination must be an absolute path.");
+    }
+    const session = this.requireSession(sessionId);
     if (session.state !== "stopped") {
       throw new Error("Stop the recording before saving an MP3.");
     }
-    if (!isTrack(request.track)) {
-      throw new Error(`Unknown recording track: ${String(request.track)}.`);
+    await session.writeChain;
+    const sourcePath = this.recordingPath(session.directory);
+    const fileStat = await stat(sourcePath);
+    if (fileStat.size === 0) {
+      throw new Error("The mixed MP3 recording is empty.");
     }
-
-    const safeName = basename(request.suggestedName).endsWith(".mp3")
-      ? basename(request.suggestedName)
-      : `${basename(request.suggestedName)}.mp3`;
-    const result = await dialog.showSaveDialog({
-      title: "MP3 を保存",
-      defaultPath: safeName,
-      filters: [{ name: "MP3 audio", extensions: ["mp3"] }],
-      properties: ["showOverwriteConfirmation", "createDirectory"],
-    });
-    if (result.canceled || !result.filePath) {
-      return { canceled: true };
-    }
-
-    await copyFile(
-      this.trackPath(session.directory, request.track),
-      result.filePath,
-    );
-    return { canceled: false, filePath: result.filePath };
+    await copyFile(sourcePath, destinationPath);
   }
 
   public async discard(sessionId: string): Promise<void> {
@@ -176,8 +149,8 @@ export class RecordingService {
     return session;
   }
 
-  private trackPath(directory: string, track: RecordingTrack): string {
-    return join(directory, `${track}.mp3`);
+  private recordingPath(directory: string): string {
+    return join(directory, RECORDING_FILE_NAME);
   }
 
   private async removeAbandonedRecordings(): Promise<void> {

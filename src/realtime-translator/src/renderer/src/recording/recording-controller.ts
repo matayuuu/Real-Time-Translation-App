@@ -1,14 +1,13 @@
 import type {
   RecordingSessionInfo,
   RecordingStopResult,
-  RecordingTrack,
 } from "@shared/contracts";
 
 import type { PcmBatch } from "../audio/audio-capture";
 
 type WorkerOutput =
   | { type: "ready" }
-  | { type: "chunk"; track: RecordingTrack; chunk: Uint8Array }
+  | { type: "chunk"; chunk: Uint8Array }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -98,11 +97,9 @@ export class RecordingController {
     this.worker.postMessage(
       {
         type: "encode",
-        speaker: batch.speaker,
-        microphone: batch.microphone,
-        mix: batch.mix,
+        samples: batch.mix,
       },
-      [batch.speaker.buffer, batch.microphone.buffer, batch.mix.buffer],
+      [batch.mix.buffer],
     );
   }
 
@@ -163,7 +160,6 @@ export class RecordingController {
     this.appendChain = this.appendChain.then(() =>
       window.desktop.recording.append({
         sessionId,
-        track: message.track,
         chunk: message.chunk,
       }),
     );
