@@ -30,7 +30,6 @@ import {
   EMPTY_TRANSCRIPTS,
   transcriptReducer,
   type TranscriptEntry,
-  type TranscriptState,
 } from "./transcript/reducer";
 
 export type AppPhase =
@@ -95,19 +94,11 @@ function connectionLabel(state: TranslationConnectionState): string {
 interface LevelMeterProps {
   label: string;
   value: number;
-  compact?: boolean;
 }
 
-function LevelMeter({
-  label,
-  value,
-  compact = false,
-}: LevelMeterProps): React.JSX.Element {
+function LevelMeter({ label, value }: LevelMeterProps): React.JSX.Element {
   return (
-    <div
-      className={compact ? "level level--compact" : "level"}
-      aria-label={`${label} 音量 ${Math.round(value * 100)}%`}
-    >
+    <div className="level" aria-label={`${label} 音量 ${Math.round(value * 100)}%`}>
       <span>{label}</span>
       <progress
         className="level__track"
@@ -198,90 +189,22 @@ export function SessionControls({
   );
 }
 
-interface ConversationMessage extends TranscriptEntry {
+interface TranscriptPaneProps {
   source: AudioSource;
-}
-
-export function mergeTranscriptEntries(
-  transcripts: TranscriptState,
-): ConversationMessage[] {
-  return [
-    ...transcripts.speaker.map((entry) => ({
-      ...entry,
-      source: "speaker" as const,
-    })),
-    ...transcripts.microphone.map((entry) => ({
-      ...entry,
-      source: "microphone" as const,
-    })),
-  ].sort((left, right) => {
-    if (
-      left.elapsedMs !== undefined &&
-      right.elapsedMs !== undefined &&
-      left.elapsedMs !== right.elapsedMs
-    ) {
-      return left.elapsedMs - right.elapsedMs;
-    }
-    const timestampDifference =
-      Date.parse(left.startedAt) - Date.parse(right.startedAt);
-    if (timestampDifference !== 0) {
-      return timestampDifference;
-    }
-    return left.source === "speaker" ? -1 : 1;
-  });
-}
-
-interface SourceIndicatorProps {
-  source: AudioSource;
+  entries: TranscriptEntry[];
   connection: TranslationConnectionState;
   level: number;
+  error: string | null;
 }
 
-function SourceIndicator({
+function TranscriptPane({
   source,
+  entries,
   connection,
   level,
-}: SourceIndicatorProps): React.JSX.Element {
+  error,
+}: TranscriptPaneProps): React.JSX.Element {
   const isSpeaker = source === "speaker";
-  const label = isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT";
-  return (
-    <div
-      className={`conversation-source conversation-source--${source}`}
-      aria-label={`${label}: ${connectionLabel(connection)}`}
-    >
-      <div className="conversation-source__title">
-        <span className="conversation-source__swatch" aria-hidden="true" />
-        <strong>{label}</strong>
-        <span className={`status status--${connection}`}>
-          {connectionLabel(connection)}
-        </span>
-      </div>
-      <LevelMeter
-        label={isSpeaker ? "スピーカー" : "マイク"}
-        value={level}
-        compact
-      />
-    </div>
-  );
-}
-
-interface ConversationPaneProps {
-  transcripts: TranscriptState;
-  connections: Record<AudioSource, TranslationConnectionState>;
-  levels: Record<AudioSource, number>;
-  sourceErrors: Record<AudioSource, string | null>;
-}
-
-export function ConversationPane({
-  transcripts,
-  connections,
-  levels,
-  sourceErrors,
-}: ConversationPaneProps): React.JSX.Element {
-  const entries = useMemo(
-    () => mergeTranscriptEntries(transcripts),
-    [transcripts],
-  );
   const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const list = listRef.current;
@@ -299,88 +222,57 @@ export function ConversationPane({
   }, [entries]);
 
   return (
-    <section className="conversation-pane" aria-labelledby="conversation-title">
-      <header className="conversation-pane__header">
+    <section className="transcript-pane" aria-labelledby={`${source}-title`}>
+      <header className="transcript-pane__header">
         <div>
-          <p className="eyebrow">LIVE CONVERSATION</p>
-          <h2 id="conversation-title">会話タイムライン</h2>
-          <p className="language-pair">English → 日本語</p>
+          <p className="eyebrow" id={`${source}-title`}>
+            {isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}
+          </p>
+          <p className="language-pair">
+            English → 日本語
+          </p>
         </div>
-        <div className="conversation-sources">
-          <SourceIndicator
-            source="speaker"
-            connection={connections.speaker}
-            level={levels.speaker}
-          />
-          <SourceIndicator
-            source="microphone"
-            connection={connections.microphone}
-            level={levels.microphone}
-          />
-        </div>
+        <span className={`status status--${connection}`}>
+          {connectionLabel(connection)}
+        </span>
       </header>
 
-      {sourceErrors.speaker || sourceErrors.microphone ? (
-        <div className="conversation-errors">
-          {sourceErrors.speaker ? (
-            <div className="inline-error">
-              SPEAKER OUTPUT: {sourceErrors.speaker}
-            </div>
-          ) : null}
-          {sourceErrors.microphone ? (
-            <div className="inline-error">
-              MICROPHONE INPUT: {sourceErrors.microphone}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <LevelMeter
+        label={isSpeaker ? "スピーカー" : "マイク"}
+        value={level}
+      />
 
-      <div className="conversation-list" ref={listRef}>
+      {error ? <div className="inline-error">{error}</div> : null}
+
+      <div className="transcript-list" ref={listRef}>
         {entries.length === 0 ? (
           <div className="empty-transcript">
             <span className="empty-transcript__mark">Aa</span>
-            <p>
-              相手の音声は左、自分のマイク音声は右に表示されます。
-            </p>
+            <p>会話を開始すると原文と訳文がここに表示されます。</p>
           </div>
         ) : (
-          entries
-            .slice(-MAX_VISIBLE_TRANSCRIPT_ENTRIES * 2)
-            .map((entry) => {
-              const isSpeaker = entry.source === "speaker";
-              return (
-                <article
-                  className={`conversation-message conversation-message--${entry.source}`}
-                  aria-label={isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}
-                  key={`${entry.source}-${entry.id}`}
-                >
-                  <div className="conversation-message__meta">
-                    <strong>
-                      {isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}
-                    </strong>
-                    <time>{formatTime(entry.startedAt)}</time>
-                  </div>
-                  <div className="conversation-bubble">
-                    <div className="conversation-bubble__original">
-                      <span>EN</span>
-                      <p className={entry.originalFinal ? "" : "is-partial"}>
-                        {entry.original || "…"}
-                      </p>
-                    </div>
-                    <div className="conversation-bubble__translation">
-                      <span>JA</span>
-                      <p
-                        className={
-                          entry.translationFinal ? "" : "is-partial"
-                        }
-                      >
-                        {entry.translation || "…"}
-                      </p>
-                    </div>
-                  </div>
-                </article>
-              );
-            })
+          entries.slice(-MAX_VISIBLE_TRANSCRIPT_ENTRIES).map((entry) => (
+            <article className="utterance" key={entry.id}>
+              <time>{formatTime(entry.startedAt)}</time>
+              <div className="utterance__part">
+                <span className="utterance__label">
+                  EN 原文
+                </span>
+                <p className={entry.originalFinal ? "" : "is-partial"}>
+                  {entry.original || "…"}
+                </p>
+              </div>
+              <div className="utterance__divider" />
+              <div className="utterance__part utterance__part--translation">
+                <span className="utterance__label">
+                  JA 訳文
+                </span>
+                <p className={entry.translationFinal ? "" : "is-partial"}>
+                  {entry.translation || "…"}
+                </p>
+              </div>
+            </article>
+          ))
         )}
       </div>
     </section>
@@ -944,7 +836,7 @@ export function App(): React.JSX.Element {
           </div>
           <div>
             <h1>Realtime Translator</h1>
-            <p>英語と日本語を、ひとつの会話としてリアルタイム表示</p>
+            <p>英語と日本語を、話者ごとにリアルタイム表示</p>
           </div>
         </div>
         <div className="session-summary">
@@ -1047,12 +939,22 @@ export function App(): React.JSX.Element {
         </section>
       ) : null}
 
-      <ConversationPane
-        transcripts={transcripts}
-        connections={connections}
-        levels={levels}
-        sourceErrors={sourceErrors}
-      />
+      <section className="transcript-grid">
+        <TranscriptPane
+          source="speaker"
+          entries={transcripts.speaker}
+          connection={connections.speaker}
+          level={levels.speaker}
+          error={sourceErrors.speaker}
+        />
+        <TranscriptPane
+          source="microphone"
+          entries={transcripts.microphone}
+          connection={connections.microphone}
+          level={levels.microphone}
+          error={sourceErrors.microphone}
+        />
+      </section>
 
       {recordingResult ? (
         <ExportPanel
