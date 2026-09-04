@@ -32,15 +32,22 @@ import {
   type TranscriptEntry,
 } from "./transcript/reducer";
 
-type AppPhase =
+export type AppPhase =
   | "idle"
   | "starting"
   | "running"
+  | "pausing"
+  | "paused"
+  | "resuming"
   | "stopping"
   | "finished"
   | "error";
 
 const MAX_VISIBLE_TRANSCRIPT_ENTRIES = 200;
+
+export function shouldShowConsentNotice(phase: AppPhase): boolean {
+  return phase === "idle" || phase === "error";
+}
 
 const INITIAL_CONNECTIONS: Record<
   AudioSource,
@@ -102,6 +109,86 @@ function LevelMeter({ label, value }: LevelMeterProps): React.JSX.Element {
   );
 }
 
+interface SessionControlsProps {
+  phase: AppPhase;
+  canStart: boolean;
+  onStart(): void;
+  onPause(): void;
+  onResume(): void;
+  onStop(): void;
+}
+
+export function SessionControls({
+  phase,
+  canStart,
+  onStart,
+  onPause,
+  onResume,
+  onStop,
+}: SessionControlsProps): React.JSX.Element {
+  if (phase === "running") {
+    return (
+      <div className="primary-actions">
+        <button
+          className="button button--pause"
+          type="button"
+          onClick={onPause}
+        >
+          STOP
+        </button>
+        <button
+          className="button button--stop"
+          type="button"
+          onClick={onStop}
+        >
+          END SESSION
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "paused") {
+    return (
+      <div className="primary-actions">
+        <button
+          className="button button--primary"
+          type="button"
+          onClick={onResume}
+        >
+          RESUME
+        </button>
+        <button
+          className="button button--stop"
+          type="button"
+          onClick={onStop}
+        >
+          END SESSION
+        </button>
+      </div>
+    );
+  }
+
+  const transitionLabels: Partial<Record<AppPhase, string>> = {
+    starting: "CONNECTING...",
+    pausing: "PAUSING...",
+    resuming: "RESUMING...",
+    stopping: "FINISHING...",
+  };
+
+  return (
+    <div className="primary-actions">
+      <button
+        className="button button--primary"
+        type="button"
+        disabled={!canStart}
+        onClick={onStart}
+      >
+        {transitionLabels[phase] ?? "START CONVERSATION"}
+      </button>
+    </div>
+  );
+}
+
 interface TranscriptPaneProps {
   source: AudioSource;
   entries: TranscriptEntry[];
@@ -138,10 +225,9 @@ function TranscriptPane({
     <section className="transcript-pane" aria-labelledby={`${source}-title`}>
       <header className="transcript-pane__header">
         <div>
-          <p className="eyebrow">{isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}</p>
-          <h2 id={`${source}-title`}>
-            {isSpeaker ? "相手の発言" : "自分の発言"}
-          </h2>
+          <p className="eyebrow" id={`${source}-title`}>
+            {isSpeaker ? "SPEAKER OUTPUT" : "MICROPHONE INPUT"}
+          </p>
           <p className="language-pair">
             {isSpeaker ? "English → 日本語" : "日本語 → English"}
           </p>
@@ -202,6 +288,7 @@ interface ExportPanelProps {
   insightsAvailable: boolean;
   transcriptAvailable: boolean;
   savedOutput: string | null;
+  error: string | null;
 }
 
 export function ExportPanel({
@@ -213,6 +300,7 @@ export function ExportPanel({
   insightsAvailable,
   transcriptAvailable,
   savedOutput,
+  error,
 }: ExportPanelProps): React.JSX.Element {
   const [summary, setSummary] = useState(false);
   const [nextActions, setNextActions] = useState(false);
@@ -230,89 +318,104 @@ export function ExportPanel({
   const bundleRequested = summary || nextActions;
 
   return (
-    <section
-      className="export-panel"
-      aria-labelledby="export-title"
-      aria-busy={busy}
-    >
-      <div className="export-panel__intro">
-        <p className="eyebrow">LOCAL RECORDING</p>
-        <h2 id="export-title">会話ファイルを保存</h2>
-        <p>
-          相手と自分の音声を混ぜた MP3 を保存します。必要に応じて会話メモを追加できます。
-        </p>
-      </div>
-      <div className="export-controls">
-        <fieldset className="export-options">
-          <legend>Markdown を追加</legend>
-          <label className="export-option">
-            <input
-              type="checkbox"
-              checked={summary}
-              disabled={busy || !documentsAvailable}
-              onChange={(event) => setSummary(event.target.checked)}
-            />
-            <span>
-              <strong>日本語で会話を要約</strong>
-              <small>概要、主な論点、決定事項、未解決事項</small>
-            </span>
-          </label>
-          <label className="export-option">
-            <input
-              type="checkbox"
-              checked={nextActions}
-              disabled={busy || !documentsAvailable}
-              onChange={(event) => setNextActions(event.target.checked)}
-            />
-            <span>
-              <strong>日本語で Next Actions を作成</strong>
-              <small>明示された行動、担当者、期限を整理</small>
-            </span>
-          </label>
-        </fieldset>
-        {!insightsAvailable ? (
-          <p className="export-hint">
-            Markdown を生成するには setup を再実行し、gpt-5.6-luna を追加してください。
+    <div className="export-backdrop">
+      <section
+        className="export-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-title"
+        aria-busy={busy}
+      >
+        <div className="export-panel__intro">
+          <p className="eyebrow">SESSION COMPLETE</p>
+          <h2 id="export-title">音声ファイルを保存しますか？</h2>
+          <p>
+            相手と自分をミックスした MP3 を保存します。必要な Markdown を追加で選択できます。
           </p>
-        ) : !transcriptAvailable ? (
-          <p className="export-hint">
-            Markdown を生成できる会話ログがありません。MP3 は保存できます。
-          </p>
-        ) : (
-          <p className="export-hint">
-            選択時だけ会話ログを Luna へ送信します。音声は追加送信しません。
-          </p>
-        )}
-        <div className="export-actions">
-          <button
-            className="export-button"
-            type="button"
-            disabled={busy || result.byteLength === 0}
-            onClick={() => void onExport(options)}
-          >
-            <span>{exporting ? "生成・保存中…" : "会話音声を保存"}</span>
-            <small>
-              {bundleRequested
-                ? "一意フォルダーに MP3 と Markdown を保存"
-                : "一意な名前で混合 MP3 を保存"}
-            </small>
-          </button>
-          <button
-            className="button button--discard"
-            type="button"
-            disabled={busy}
-            onClick={() => void onDiscard()}
-          >
-            {discarding ? "削除中…" : "一時録音を削除"}
-          </button>
         </div>
-        {savedOutput ? (
-          <p className="export-success" role="status">
-            保存しました: <span>{savedOutput}</span>
-          </p>
-        ) : null}
-      </div>
-    </section>
+        <div className="export-controls">
+          <fieldset className="export-options">
+            <legend>Markdown オプション</legend>
+            <label className="export-option">
+              <input
+                type="checkbox"
+                checked={summary}
+                disabled={busy || !documentsAvailable}
+                onChange={(event) => setSummary(event.target.checked)}
+              />
+              <span>
+                <strong>日本語で会話を要約</strong>
+                <small>概要、主な論点、決定事項、未解決事項</small>
+              </span>
+            </label>
+            <label className="export-option">
+              <input
+                type="checkbox"
+                checked={nextActions}
+                disabled={busy || !documentsAvailable}
+                onChange={(event) => setNextActions(event.target.checked)}
+              />
+              <span>
+                <strong>日本語で Next Actions を作成</strong>
+                <small>明示された行動、担当者、期限を整理</small>
+              </span>
+            </label>
+          </fieldset>
+          {!insightsAvailable ? (
+            <p className="export-hint">
+              Markdown を生成するには setup を再実行し、gpt-5.6-luna を追加してください。
+            </p>
+          ) : !transcriptAvailable ? (
+            <p className="export-hint">
+              Markdown を生成できる会話ログがありません。MP3 は保存できます。
+            </p>
+          ) : (
+            <p className="export-hint">
+              選択時だけ会話ログを Luna へ送信します。音声は追加送信しません。
+            </p>
+          )}
+          {error ? (
+            <div className="global-message global-message--error">{error}</div>
+          ) : null}
+          <div className="export-actions">
+            <button
+              className="export-button"
+              type="button"
+              disabled={busy || result.byteLength === 0}
+              onClick={() => void onExport(options)}
+            >
+              <span>{exporting ? "生成・保存中…" : "音声ファイルを保存"}</span>
+              <small>
+                {bundleRequested
+                  ? "一意フォルダーに MP3 と Markdown を保存"
+                  : "一意な名前で混合 MP3 を保存"}
+              </small>
+            </button>
+            <button
+              className="button button--discard"
+              type="button"
+              disabled={busy}
+              onClick={() => void onDiscard()}
+            >
+              {discarding
+                ? "CLOSING..."
+                : savedOutput
+                  ? "DONE"
+                  : "DISCARD & CLOSE"}
+            </button>
+          </div>
+          {savedOutput ? (
+            <p className="export-success" role="status">
+              保存しました: <span>{savedOutput}</span>
+            </p>
+          ) : (
+            <p className="export-hint">
+              保存せず閉じる場合、一時録音は端末から削除されます。
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -353,6 +456,7 @@ export function App(): React.JSX.Element {
     Partial<Record<AudioSource, TranslationSession>>
   >({});
   const startedAtRef = useRef<number | null>(null);
+  const accumulatedElapsedMsRef = useRef(0);
 
   const refreshMicrophones = useCallback(async (): Promise<void> => {
     try {
@@ -393,8 +497,14 @@ export function App(): React.JSX.Element {
       return;
     }
     const timer = window.setInterval(() => {
+      const startedAt = startedAtRef.current;
+      if (startedAt === null) {
+        return;
+      }
       setElapsedSeconds(
-        Math.floor((Date.now() - startedAtRef.current!) / 1_000),
+        Math.floor(
+          (accumulatedElapsedMsRef.current + Date.now() - startedAt) / 1_000,
+        ),
       );
     }, 500);
     return () => window.clearInterval(timer);
@@ -462,6 +572,9 @@ export function App(): React.JSX.Element {
     setConnections(INITIAL_CONNECTIONS);
     setRecordingResult(null);
     setSavedOutput(null);
+    accumulatedElapsedMsRef.current = 0;
+    startedAtRef.current = null;
+    setElapsedSeconds(0);
     dispatchTranscript({ type: "clear" });
 
     try {
@@ -486,6 +599,9 @@ export function App(): React.JSX.Element {
         },
         onLevel(source, level) {
           setLevels((current) => ({ ...current, [source]: level }));
+        },
+        onError(message) {
+          setGlobalError(message);
         },
       });
       await recorder.start(sampleRate);
@@ -536,9 +652,63 @@ export function App(): React.JSX.Element {
     }
   };
 
-  const stop = async (): Promise<void> => {
-    if (phase !== "running") {
+  const pause = async (): Promise<void> => {
+    if (phase !== "running" || !pipelineRef.current) {
       return;
+    }
+
+    setPhase("pausing");
+    setGlobalError(null);
+    Object.values(sessionsRef.current).forEach((session) => session.pause());
+    try {
+      await pipelineRef.current.pause();
+      if (startedAtRef.current !== null) {
+        accumulatedElapsedMsRef.current += Date.now() - startedAtRef.current;
+        startedAtRef.current = null;
+      }
+      setElapsedSeconds(
+        Math.floor(accumulatedElapsedMsRef.current / 1_000),
+      );
+      setLevels({ speaker: 0, microphone: 0 });
+      setPhase("paused");
+    } catch (error) {
+      setGlobalError(`一時停止できませんでした: ${errorMessage(error)}`);
+      const result = await stopResources();
+      setRecordingResult(result);
+      setPhase(result ? "finished" : "error");
+    }
+  };
+
+  const resume = async (): Promise<void> => {
+    if (phase !== "paused" || !pipelineRef.current) {
+      return;
+    }
+
+    setPhase("resuming");
+    setGlobalError(null);
+    try {
+      await pipelineRef.current.resume();
+      Object.values(sessionsRef.current).forEach((session) => session.resume());
+      startedAtRef.current = Date.now();
+      setPhase("running");
+    } catch (error) {
+      setGlobalError(`再開できませんでした: ${errorMessage(error)}`);
+      const result = await stopResources();
+      setRecordingResult(result);
+      setPhase(result ? "finished" : "error");
+    }
+  };
+
+  const stop = async (): Promise<void> => {
+    if (phase !== "running" && phase !== "paused") {
+      return;
+    }
+    if (phase === "running" && startedAtRef.current !== null) {
+      accumulatedElapsedMsRef.current += Date.now() - startedAtRef.current;
+      startedAtRef.current = null;
+      setElapsedSeconds(
+        Math.floor(accumulatedElapsedMsRef.current / 1_000),
+      );
     }
     setPhase("stopping");
     const result = await stopResources();
@@ -606,6 +776,8 @@ export function App(): React.JSX.Element {
       await window.desktop.recording.discard(recordingResult.sessionId);
       setRecordingResult(null);
       setSavedOutput(null);
+      accumulatedElapsedMsRef.current = 0;
+      startedAtRef.current = null;
       setElapsedSeconds(0);
       setPhase("idle");
     } catch (error) {
@@ -615,11 +787,30 @@ export function App(): React.JSX.Element {
     }
   };
 
+  const sessionIsActive = [
+    "starting",
+    "running",
+    "pausing",
+    "paused",
+    "resuming",
+    "stopping",
+  ].includes(phase);
   const canStart =
     Boolean(configuration) &&
     consent &&
     recordingResult === null &&
-    !["starting", "running", "stopping"].includes(phase);
+    (phase === "idle" || phase === "error");
+  const showConsentNotice = shouldShowConsentNotice(phase);
+  const sessionStatus =
+    phase === "running"
+      ? "録音中"
+      : phase === "paused"
+        ? "一時停止中"
+        : phase === "starting" || phase === "resuming"
+          ? "接続中"
+          : phase === "pausing" || phase === "stopping"
+            ? "処理中"
+            : "待機中";
   const modelSummary = useMemo(() => {
     if (!configuration) {
       return null;
@@ -641,16 +832,24 @@ export function App(): React.JSX.Element {
       <header className="app-header">
         <div className="brand">
           <div className="brand__mark" aria-hidden="true">
-            通
+            <img src="/app-icon.png" alt="" />
           </div>
           <div>
-            <h1>Teams Realtime Translator</h1>
+            <h1>Realtime Translator</h1>
             <p>英語と日本語を、話者ごとにリアルタイム表示</p>
           </div>
         </div>
         <div className="session-summary">
-          <span className={`recording-dot ${phase === "running" ? "is-live" : ""}`} />
-          <span>{phase === "running" ? "録音中" : "待機中"}</span>
+          <span
+            className={`recording-dot ${
+              phase === "running"
+                ? "is-live"
+                : phase === "paused"
+                  ? "is-paused"
+                  : ""
+            }`}
+          />
+          <span>{sessionStatus}</span>
           <strong>{formatElapsed(elapsedSeconds)}</strong>
         </div>
       </header>
@@ -672,14 +871,13 @@ export function App(): React.JSX.Element {
             className="button button--quiet"
             type="button"
             disabled={
-              phase === "running" ||
-              phase === "starting" ||
+              sessionIsActive ||
               exportingRecording ||
               discardingRecording
             }
             onClick={() => void chooseConfiguration()}
           >
-            設定を選択
+            SELECT CONFIG
           </button>
         </div>
 
@@ -687,7 +885,7 @@ export function App(): React.JSX.Element {
           <span>マイク</span>
           <select
             value={microphoneDeviceId}
-            disabled={phase === "running" || phase === "starting"}
+            disabled={sessionIsActive}
             onChange={(event) => setMicrophoneDeviceId(event.target.value)}
           >
             {microphones.length === 0 ? (
@@ -702,26 +900,14 @@ export function App(): React.JSX.Element {
           </select>
         </label>
 
-        <div className="primary-actions">
-          {phase === "running" ? (
-            <button
-              className="button button--stop"
-              type="button"
-              onClick={() => void stop()}
-            >
-              会話を終了
-            </button>
-          ) : (
-            <button
-              className="button button--primary"
-              type="button"
-              disabled={!canStart}
-              onClick={() => void start()}
-            >
-              {phase === "starting" ? "接続中…" : "会話を開始"}
-            </button>
-          )}
-        </div>
+        <SessionControls
+          phase={phase}
+          canStart={canStart}
+          onStart={() => void start()}
+          onPause={() => void pause()}
+          onResume={() => void resume()}
+          onStop={() => void stop()}
+        />
       </section>
 
       {configurationError ? (
@@ -733,24 +919,25 @@ export function App(): React.JSX.Element {
         <div className="global-message global-message--error">{globalError}</div>
       ) : null}
 
-      <section className="notice-bar">
-        <div>
-          <strong>録音と Azure 送信について</strong>
-          <p>
-            既定スピーカーの全システム音声とマイクを取得し、文字起こし・翻訳のため
-            Azure へ送信します。Teams の相手から録音同意を得て、headset を利用してください。
-          </p>
-        </div>
-        <label className="consent">
-          <input
-            type="checkbox"
-            checked={consent}
-            disabled={phase === "running" || phase === "starting"}
-            onChange={(event) => setConsent(event.target.checked)}
-          />
-          <span>同意を確認しました</span>
-        </label>
-      </section>
+      {showConsentNotice ? (
+        <section className="notice-bar">
+          <div>
+            <strong>録音と Azure 送信について</strong>
+            <p>
+              既定スピーカーの全システム音声とマイクを取得し、文字起こし・翻訳のため
+              Azure へ送信します。参加者から録音同意を得て、headset を利用してください。
+            </p>
+          </div>
+          <label className="consent">
+            <input
+              type="checkbox"
+              checked={consent}
+              onChange={(event) => setConsent(event.target.checked)}
+            />
+            <span>同意を確認しました</span>
+          </label>
+        </section>
+      ) : null}
 
       <section className="transcript-grid">
         <TranscriptPane
@@ -779,6 +966,7 @@ export function App(): React.JSX.Element {
           insightsAvailable={Boolean(configuration?.context.insights)}
           transcriptAvailable={transcriptAvailable}
           savedOutput={savedOutput}
+          error={globalError}
         />
       ) : null}
 

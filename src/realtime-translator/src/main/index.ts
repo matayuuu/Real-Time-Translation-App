@@ -20,9 +20,11 @@ import type {
 import { IPC_CHANNELS } from "../shared/ipc";
 import { ConversationInsightsService } from "./conversation-insights-service";
 import { ContextService } from "./context-service";
+import { ElectronUpdateClient } from "./electron-update-client";
 import { RecordingExportService } from "./recording-export-service";
 import { RecordingService } from "./recording-service";
 import { TranslationSecretService } from "./translation-secret-service";
+import { UpdateService } from "./update-service";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -36,6 +38,13 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
+app.setName("Realtime Translator");
+// Keep existing settings and pending recordings across the product rename.
+app.setPath(
+  "userData",
+  join(app.getPath("appData"), "teams-realtime-translator"),
+);
+
 const isDevelopment = Boolean(process.env.ELECTRON_RENDERER_URL);
 const appRoot = app.getAppPath();
 const repositoryContextPath = isDevelopment
@@ -46,6 +55,7 @@ let mainWindow: BrowserWindow | null = null;
 let contextService: ContextService;
 let recordingService: RecordingService;
 let recordingExportService: RecordingExportService;
+let updateService: UpdateService | null = null;
 const translationSecretService = new TranslationSecretService();
 const conversationInsightsService = new ConversationInsightsService();
 
@@ -204,6 +214,9 @@ async function createWindow(): Promise<void> {
     minWidth: 1040,
     minHeight: 700,
     show: false,
+    icon: isDevelopment
+      ? resolve(appRoot, "build", "icon.ico")
+      : join(process.resourcesPath, "icon.ico"),
     webPreferences: {
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       nodeIntegration: false,
@@ -228,6 +241,27 @@ async function createWindow(): Promise<void> {
   }
 }
 
+async function promptToInstallUpdate(version: string): Promise<boolean> {
+  const options: Electron.MessageBoxOptions = {
+    type: "info",
+    title: "Realtime Translator の更新",
+    message: `バージョン ${version} をダウンロードしました。`,
+    detail: "再起動して更新を適用しますか？",
+    buttons: ["再起動して更新", "後で"],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  };
+  const result = mainWindow
+    ? await dialog.showMessageBox(mainWindow, options)
+    : await dialog.showMessageBox(options);
+  return result.response === 0;
+}
+
+function reportUpdateError(error: Error): void {
+  console.error(`Automatic update failed: ${error.message}`);
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   app.quit();
@@ -242,6 +276,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.whenReady().then(async () => {
+    app.setAppUserModelId("com.matayuuu.realtimetranslator");
     contextService = new ContextService(
       join(app.getPath("userData"), "settings.json"),
       repositoryContextPath,
@@ -267,6 +302,14 @@ if (!hasSingleInstanceLock) {
     configureMediaPermissions();
     registerIpcHandlers();
     await createWindow();
+    if (app.isPackaged) {
+      updateService = new UpdateService(
+        new ElectronUpdateClient(),
+        promptToInstallUpdate,
+        reportUpdateError,
+      );
+      updateService.start();
+    }
     if (initializationError) {
       mainWindow?.webContents.send(IPC_CHANNELS.appEvent, {
         type: "configuration-error",
@@ -276,6 +319,7 @@ if (!hasSingleInstanceLock) {
   });
 
   app.on("window-all-closed", () => {
+    updateService?.stop();
     app.quit();
   });
 }

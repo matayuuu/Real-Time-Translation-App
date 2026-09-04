@@ -38,7 +38,11 @@ interface RealtimeEvent {
 
 const CONNECT_TIMEOUT_MS = 15_000;
 const CLOSE_TIMEOUT_MS = 4_000;
+const INPUT_TRANSCRIPT_STALL_MS = 45_000;
 const RECONNECT_DELAYS_MS = [500, 1_000, 2_000] as const;
+const INPUT_TRANSCRIPTION_FAILURE_EVENTS = new Set([
+  "conversation.item.input_audio_transcription.failed",
+]);
 
 function eventText(event: RealtimeEvent): string {
   for (const candidate of [event.delta, event.text, event.transcript]) {
@@ -63,14 +67,31 @@ export function parseTranscriptEvent(
     Pick<TranscriptDelta, "side" | "kind">
   > = {
     "session.input_transcript.delta": { side: "input", kind: "delta" },
+    "session.input_transcript.completed": { side: "input", kind: "done" },
+    "session.input_transcript.done": { side: "input", kind: "done" },
+    "conversation.item.input_audio_transcription.delta": {
+      side: "input",
+      kind: "delta",
+    },
     "conversation.item.input_audio_transcription.completed": {
       side: "input",
       kind: "done",
     },
     "session.output_transcript.delta": { side: "output", kind: "delta" },
+    "session.output_transcript.completed": { side: "output", kind: "done" },
     "session.output_transcript.done": { side: "output", kind: "done" },
     "response.text.delta": { side: "output", kind: "delta" },
     "response.text.done": { side: "output", kind: "done" },
+    "response.output_text.delta": { side: "output", kind: "delta" },
+    "response.output_text.done": { side: "output", kind: "done" },
+    "response.output_audio_transcript.delta": {
+      side: "output",
+      kind: "delta",
+    },
+    "response.output_audio_transcript.done": {
+      side: "output",
+      kind: "done",
+    },
   };
   const mapping = mappings[event.type];
   if (!mapping) {
@@ -144,6 +165,7 @@ export class TranslationSession {
   private closedEventResolver: (() => void) | null = null;
   private streamSequence = 0;
   private currentStreamId = "";
+  private inputTranscriptMissingSince: number | null = null;
 
   public constructor(
     private readonly source: AudioSource,
@@ -154,6 +176,16 @@ export class TranslationSession {
   public async start(): Promise<void> {
     this.stopRequested = false;
     await this.connect("connecting");
+  }
+
+  public pause(): void {
+    this.audioTrack.enabled = false;
+  }
+
+  public resume(): void {
+    if (!this.stopRequested) {
+      this.audioTrack.enabled = true;
+    }
   }
 
   public async close(): Promise<void> {
@@ -183,6 +215,7 @@ export class TranslationSession {
     this.callbacks.onState(initialState);
     this.streamSequence += 1;
     this.currentStreamId = `${this.source}-${this.streamSequence}`;
+    this.inputTranscriptMissingSince = null;
     const targetLanguage = this.source === "speaker" ? "ja" : "en";
     const secret = await window.desktop.translation.createSecret({
       source: this.source,
@@ -212,6 +245,9 @@ export class TranslationSession {
     this.dataChannel = channel;
     channel.onmessage = (message) => {
       this.handleMessage(message.data);
+    };
+    channel.onerror = () => {
+      void this.reconnect(`${this.source} Realtime data channel failed.`);
     };
     channel.onclose = () => {
       if (!this.stopRequested) {
@@ -268,6 +304,7 @@ export class TranslationSession {
     );
     if (transcript) {
       this.callbacks.onTranscript(transcript);
+      this.monitorTranscriptHealth(transcript);
       return;
     }
     if (event.type === "session.closed") {
@@ -281,6 +318,39 @@ export class TranslationSession {
           ? event.error.message
           : "Realtime API returned an error.";
       this.callbacks.onError(message);
+      return;
+    }
+    if (
+      typeof event.type === "string" &&
+      INPUT_TRANSCRIPTION_FAILURE_EVENTS.has(event.type)
+    ) {
+      const message =
+        typeof event.error?.message === "string"
+          ? event.error.message
+          : `${this.source} source transcription failed.`;
+      void this.reconnect(message);
+    }
+  }
+
+  private monitorTranscriptHealth(transcript: TranscriptDelta): void {
+    if (transcript.text === "") {
+      return;
+    }
+    if (transcript.side === "input") {
+      this.inputTranscriptMissingSince = null;
+      return;
+    }
+
+    const now = Date.now();
+    if (this.inputTranscriptMissingSince === null) {
+      this.inputTranscriptMissingSince = now;
+      return;
+    }
+    if (now - this.inputTranscriptMissingSince >= INPUT_TRANSCRIPT_STALL_MS) {
+      this.inputTranscriptMissingSince = now;
+      void this.reconnect(
+        `${this.source} source transcript stalled while translation continued.`,
+      );
     }
   }
 
@@ -321,6 +391,7 @@ export class TranslationSession {
     if (this.dataChannel) {
       this.dataChannel.onmessage = null;
       this.dataChannel.onclose = null;
+      this.dataChannel.onerror = null;
       this.dataChannel.close();
       this.dataChannel = null;
     }
@@ -330,5 +401,6 @@ export class TranslationSession {
       this.peerConnection.close();
       this.peerConnection = null;
     }
+    this.closedEventResolver = null;
   }
 }

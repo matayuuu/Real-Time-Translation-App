@@ -1,21 +1,22 @@
-# Teams Realtime Translator
+# Realtime Translator
 
-Windows 11 上で動く、Microsoft Teams 会話向けのリアルタイム翻訳コンパニオンです。
-Teams のプラグインや会議ボットではありません。PC のシステム音声とマイク入力を分けて
-取り込み、英語と日本語の原文・翻訳を話者ごとに表示します。
+Windows 11 上で動く、オンライン会議、通話、動画や配信向けのリアルタイム翻訳
+コンパニオンです。特定アプリのプラグインや会議ボットではありません。PC のシステム音声と
+マイク入力を分けて取り込み、英語と日本語の原文・翻訳を入力元ごとに表示します。
 
 ## 主な機能
 
 - システム音声: 英語の文字起こしと日本語訳
 - マイク音声: 日本語の文字起こしと英語訳
 - 2 系統を並べたリアルタイム transcript
+- 会話の一時停止、再開、終了
 - 相手と自分を混ぜた MP3 の一意名保存
 - 日本語の会話要約と Next Actions の Markdown 出力（任意）
 - Microsoft Entra ID / Azure RBAC による keyless 接続
 - Terraform と PowerShell による Azure リソースの setup / cleanup
 
 > [!IMPORTANT]
-> システム音声には Teams 以外の通知音や他アプリの音声も含まれます。録音と Azure
+> システム音声には翻訳対象以外の通知音や他アプリの音声も含まれます。録音と Azure
 > への音声送信を始める前に、参加者の同意と組織のポリシーを確認してください。
 
 ## 必要な環境
@@ -44,6 +45,13 @@ Git には保存されません。
 
 既存環境から更新する場合も setup を再実行し、Markdown 生成用の `gpt-5.6-luna`
 deployment が plan に含まれることを確認してください。
+
+## Windows アプリの更新
+
+`main` の検証成功後、GitHub Actions が versioned GitHub Release と Windows installer を
+自動発行します。Setup 版を一度インストールすると、アプリは起動時と 15 分ごとに更新を確認し、
+ダウンロード完了後に再起動確認を表示します。portable 版と `win-unpacked` は開発・確認用のため、
+継続利用する端末では Setup 版を使用してください。
 
 ## 開発とパッケージ化
 
