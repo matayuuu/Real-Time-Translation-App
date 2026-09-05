@@ -30,6 +30,8 @@ Windows 11 上で動く、オンライン会議、通話、動画や配信向け
 
 ## セットアップ
 
+PowerShell 7:
+
 ```powershell
 az login
 az account set --subscription <SUBSCRIPTION_ID>
@@ -37,6 +39,17 @@ az account set --subscription <SUBSCRIPTION_ID>
 .\scripts\setup-realtime-translation.ps1 `
   -SubscriptionId <SUBSCRIPTION_ID> `
   -ResourceGroupName <RESOURCE_GROUP_NAME>
+```
+
+Bash:
+
+```bash
+az login
+az account set --subscription "<SUBSCRIPTION_ID>"
+
+pwsh -File ./scripts/setup-realtime-translation.ps1 \
+  -SubscriptionId "<SUBSCRIPTION_ID>" \
+  -ResourceGroupName "<RESOURCE_GROUP_NAME>"
 ```
 
 setup は Azure 環境を検査して Terraform plan を表示し、明示的に `APPLY` と入力した場合

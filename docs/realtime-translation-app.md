@@ -49,6 +49,17 @@ az account set --subscription <SUBSCRIPTION_ID>
   -ResourceGroupName <RESOURCE_GROUP_NAME>
 ```
 
+Bash などのシェルから実行する場合は、`pwsh` 経由で同じスクリプトを呼び出します。
+
+```bash
+az login
+az account set --subscription "<SUBSCRIPTION_ID>"
+
+pwsh -File ./scripts/setup-realtime-translation.ps1 \
+  -SubscriptionId "<SUBSCRIPTION_ID>" \
+  -ResourceGroupName "<RESOURCE_GROUP_NAME>"
+```
+
 setup は read-only preflight、Terraform plan の表示、`APPLY` による確認の順で進みます。
 自動化で明示的に了承済みの場合だけ `-AutoApprove` を指定してください。生成される
 `.realtime-translation/context.json` と Terraform state は環境固有の情報を持つため、**commit しては

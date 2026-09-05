@@ -23,6 +23,17 @@ Use the PowerShell lifecycle scripts from the repository root:
   -ResourceGroupName <RESOURCE_GROUP_NAME>
 ```
 
+From Bash, invoke the same scripts through `pwsh`:
+
+```bash
+pwsh -File ./scripts/realtime-translation-preflight.ps1 \
+  -SubscriptionId "<SUBSCRIPTION_ID>" \
+  -ResourceGroupName "<RESOURCE_GROUP_NAME>"
+pwsh -File ./scripts/setup-realtime-translation.ps1 \
+  -SubscriptionId "<SUBSCRIPTION_ID>" \
+  -ResourceGroupName "<RESOURCE_GROUP_NAME>"
+```
+
 The preflight is read-only. Setup and destroy require explicit typed
 confirmation unless `-AutoApprove` is supplied. Neither operation creates or
 deletes the resource group.
