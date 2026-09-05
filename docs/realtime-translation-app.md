@@ -44,7 +44,7 @@ PowerShell 7 でリポジトリのルートから実行します。
 ```powershell
 az login
 az account set --subscription <SUBSCRIPTION_ID>
-./scripts/setup-realtime-translation.ps1 `
+pwsh -NoProfile -File ./scripts/setup-realtime-translation.ps1 `
   -SubscriptionId <SUBSCRIPTION_ID> `
   -ResourceGroupName <RESOURCE_GROUP_NAME>
 ```
@@ -53,6 +53,32 @@ setup は read-only preflight、Terraform plan の表示、`APPLY` による確�
 自動化で明示的に了承済みの場合だけ `-AutoApprove` を指定してください。生成される
 `.realtime-translation/context.json` と Terraform state は環境固有の情報を持つため、**commit しては
 いけません**。
+
+### ローカル状態を失った場合
+
+通常の `git pull` は `.gitignore` 対象のローカル ファイルを保持します。一方、再 clone、
+リポジトリ ディレクトリの削除、別 PC への移行では、次の両方が失われます。
+
+- `.realtime-translation/context.json`
+- `infra/realtime-translation/terraform.tfstate`
+
+Terraform state が残っていれば、通常の setup を再実行するだけで `context.json` を再生成できます。
+state も失われ、Azure 側にリソースが残っている場合は、次の opt-in recovery を実行します。
+
+```powershell
+pwsh -NoProfile -File ./scripts/setup-realtime-translation.ps1 `
+  -SubscriptionId <SUBSCRIPTION_ID> `
+  -ResourceGroupName <RESOURCE_GROUP_NAME> `
+  -RecoverExisting
+```
+
+recovery は、指定環境から決定される account 名に加え、`application=teams-realtime-translation` と
+`managed-by=terraform` の tag、resource type、location、SKU が一致する場合だけ既存 account と
+配下の project、deployment、ユーザーの resource-scoped role assignment を state に import します。
+resource group 自体や一致しないリソースは import しません。import 後にも saved plan を表示し、
+`APPLY` と完全一致する入力があるまで Azure の変更や `context.json` の生成は行いません。
+途中で import が失敗した場合は、成功済みの state を保持するため、原因を解消して同じ recovery
+コマンドを再実行できます。
 
 作成される Microsoft Foundry / Azure OpenAI 構成は次のとおりです。
 
@@ -80,13 +106,45 @@ keyless 接続の構成に使用します。
   "realtime_translation": {
     "schema_version": 1,
     "setup_status": "complete",
+    "generated_at": "2026-09-05T00:00:00Z",
+    "subscription_id": "<SUBSCRIPTION_ID>",
+    "resource_group_name": "<RESOURCE_GROUP_NAME>",
+    "location": "eastus2",
+    "ai_services_account_name": "aif-rta-xxxxxxxx",
     "openai_endpoint": "https://aif-rta-xxxxxxxx.openai.azure.com",
-    "translation": { "deployment_name": "gpt-realtime-translate" },
-    "transcription": { "deployment_name": "gpt-realtime-whisper" },
-    "insights": { "deployment_name": "gpt-5.6-luna" }
+    "foundry_project_name": "realtime-translation",
+    "foundry_project_endpoint": "https://aif-rta-xxxxxxxx.services.ai.azure.com/api/projects/realtime-translation",
+    "translation": {
+      "deployment_name": "gpt-realtime-translate",
+      "model_name": "gpt-realtime-translate",
+      "model_version": "2026-05-06",
+      "sku": "GlobalStandard",
+      "capacity": 5
+    },
+    "transcription": {
+      "deployment_name": "gpt-realtime-whisper",
+      "model_name": "gpt-realtime-whisper",
+      "model_version": "2026-05-06",
+      "sku": "GlobalStandard",
+      "capacity": 5
+    },
+    "insights": {
+      "deployment_name": "gpt-5.6-luna",
+      "model_name": "gpt-5.6-luna",
+      "model_version": "2026-07-09",
+      "sku": "GlobalStandard",
+      "capacity": 30
+    },
+    "model_retirement_date": "2027-05-06"
   }
 }
 ```
+
+`realtime_translation` と、上記の `insights` 以外のフィールドは必須です。各 deployment の
+`capacity` は 1 以上の整数、それ以外の文字列フィールドは空にできません。
+`openai_endpoint` は `https://*.openai.azure.com` 形式である必要があります。`insights` は
+省略できますが、その場合は会話要約と Next Actions を生成できません。API key や client secret は
+context に保存せず、Azure CLI でサインインした Microsoft Entra ID を使用します。
 
 手編集で endpoint、deployment、subscription を別環境の値に置き換えないでください。
 環境を切り替える場合は、その環境で setup を実行した context を使用します。

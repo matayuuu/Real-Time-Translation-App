@@ -34,7 +34,7 @@ Windows 11 上で動く、オンライン会議、通話、動画や配信向け
 az login
 az account set --subscription <SUBSCRIPTION_ID>
 
-.\scripts\setup-realtime-translation.ps1 `
+pwsh -NoProfile -File .\scripts\setup-realtime-translation.ps1 `
   -SubscriptionId <SUBSCRIPTION_ID> `
   -ResourceGroupName <RESOURCE_GROUP_NAME>
 ```
@@ -45,6 +45,27 @@ Git には保存されません。
 
 既存環境から更新する場合も setup を再実行し、Markdown 生成用の `gpt-5.6-luna`
 deployment が plan に含まれることを確認してください。
+
+### ローカル設定と Terraform state の復旧
+
+通常の `git pull` ではローカル専用ファイルは削除されません。ただし、再 clone、リポジトリ
+ディレクトリの削除、別 PC への移行では、Git 管理外の `.realtime-translation/context.json` と
+`infra/realtime-translation/terraform.tfstate` が失われます。
+Azure 側にこのアプリのリソースが残っている状態で `Resource already exists` と表示された場合は、
+同じ subscription と resource group を指定して次を実行します。
+
+```powershell
+pwsh -NoProfile -File .\scripts\setup-realtime-translation.ps1 `
+  -SubscriptionId <SUBSCRIPTION_ID> `
+  -ResourceGroupName <RESOURCE_GROUP_NAME> `
+  -RecoverExisting
+```
+
+`-RecoverExisting` は、決定的な名前とこのアプリの ownership tag が一致する既存リソースだけを
+ローカル Terraform state に import します。その後に通常どおり plan を表示し、`APPLY` と完全一致する
+入力があるまで Azure を変更しません。state が残っていて `context.json` だけがない場合は、
+`-RecoverExisting` を付けずに通常の setup を再実行すれば再生成されます。既存 resource group 内に
+このアプリのリソースがまだない初回 setup にも `-RecoverExisting` は不要です。
 
 ## Windows アプリの更新
 

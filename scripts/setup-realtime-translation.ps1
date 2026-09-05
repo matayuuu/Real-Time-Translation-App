@@ -1,3 +1,5 @@
+#requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -11,7 +13,9 @@ param(
     [ValidateSet("eastus2")]
     [string]$Location = "eastus2",
 
-    [switch]$AutoApprove
+    [switch]$AutoApprove,
+
+    [switch]$RecoverExisting
 )
 
 Set-StrictMode -Version Latest
@@ -23,6 +27,7 @@ $InfraDir = Join-Path $RepoRoot "infra\realtime-translation"
 $StateDir = Join-Path $RepoRoot ".realtime-translation"
 $PreflightReport = Join-Path $StateDir "realtime-translation-preflight.json"
 $PlanPath = Join-Path $StateDir "realtime-translation.tfplan"
+$TerraformStatePath = Join-Path $InfraDir "terraform.tfstate"
 
 function Assert-CommandAvailable {
     param([Parameter(Mandatory)][string]$Name)
@@ -65,6 +70,18 @@ function Write-JsonAtomically {
     Move-Item -Force -Path $temporaryPath -Destination $Path
 }
 
+function Get-TerraformStateAddresses {
+    if (-not (Test-Path -PathType Leaf $TerraformStatePath)) {
+        return @()
+    }
+
+    $addresses = & terraform "-chdir=$InfraDir" state list
+    if ($LASTEXITCODE -ne 0) {
+        throw "Terraform could not read the local state at '$TerraformStatePath'."
+    }
+    return @($addresses | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
 foreach ($tool in @("az", "terraform")) {
     Assert-CommandAvailable -Name $tool
 }
@@ -98,6 +115,72 @@ $terraformVariables = @(
 Write-Host "==> Initializing isolated Terraform state..."
 Invoke-WithRetry -MaxAttempts 3 -DelaySeconds 5 -Description "Terraform init" -Operation {
     & terraform "-chdir=$InfraDir" init -input=false -upgrade=false
+}
+
+$managedAddresses = [System.Collections.Generic.HashSet[string]]::new(
+    [StringComparer]::Ordinal
+)
+foreach ($address in @(Get-TerraformStateAddresses)) {
+    [void]$managedAddresses.Add([string]$address)
+}
+$existingTerraformResources = if (
+    $null -ne $preflight.PSObject.Properties["existing_terraform_resources"]
+) {
+    @($preflight.existing_terraform_resources)
+}
+else {
+    @()
+}
+$unmanagedExistingResources = @(
+    $existingTerraformResources | Where-Object {
+        -not $managedAddresses.Contains([string]$_.address)
+    }
+)
+
+if ($unmanagedExistingResources.Count -gt 0) {
+    $unmanagedAddresses = (
+        $unmanagedExistingResources | ForEach-Object { [string]$_.address }
+    ) -join ", "
+    $existingAccountRecoverable = (
+        $null -ne $preflight.PSObject.Properties["existing_account_recoverable"] -and
+        [bool]$preflight.existing_account_recoverable
+    )
+    if (-not $existingAccountRecoverable) {
+        throw (
+            "Matching Azure resources already exist but cannot be recovered safely: " +
+            "$($preflight.existing_account_recovery_detail) No Azure resources were changed."
+        )
+    }
+}
+
+if ($unmanagedExistingResources.Count -gt 0 -and -not $RecoverExisting) {
+    throw (
+        "Matching Azure resources already exist but are absent from local Terraform state: $unmanagedAddresses. " +
+        "Re-run this setup command with -RecoverExisting to import them before planning. " +
+        "No Azure resources were changed."
+    )
+}
+
+if ($RecoverExisting) {
+    if ($unmanagedExistingResources.Count -eq 0) {
+        Write-Host "==> No matching Azure resources need state recovery."
+    }
+    else {
+        Write-Host "==> Recovering matching Azure resources into local Terraform state..."
+        foreach ($resource in $unmanagedExistingResources) {
+            $address = [string]$resource.address
+            $resourceId = [string]$resource.id
+            Write-Host "Importing $address"
+            & terraform "-chdir=$InfraDir" import -input=false @terraformVariables $address $resourceId
+            if ($LASTEXITCODE -ne 0) {
+                throw (
+                    "Terraform import failed for '$address'. Successfully imported resources remain in local state; " +
+                    "fix the reported error and re-run with -RecoverExisting."
+                )
+            }
+            [void]$managedAddresses.Add($address)
+        }
+    }
 }
 
 Write-Host "==> Creating saved Terraform plan..."

@@ -1,3 +1,5 @@
+#requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)]
@@ -18,6 +20,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $ScriptName = Split-Path -Leaf $PSCommandPath
+$roleDefinitionIds = @{
+    cognitive_services_openai_user = "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+    foundry_user                   = "53ca6127-db72-4b80-b1b0-d745d6d5456d"
+    foundry_project_manager        = "eadc314b-1a2d-4efa-be10-5d325db5065e"
+}
 $requestedModels = @(
     [pscustomobject]@{
         deployment_name = "gpt-realtime-translate"
@@ -159,17 +166,67 @@ $usage = Get-AzJson -Arguments @(
 $usageItems = if ($null -ne $usage.PSObject.Properties["value"]) { @($usage.value) } else { @($usage) }
 
 $nameSeed = "$SubscriptionId-$ResourceGroupName-$Location"
-$nameHash = [Convert]::ToHexString(
-    [Security.Cryptography.MD5]::HashData([Text.Encoding]::UTF8.GetBytes($nameSeed))
-).ToLowerInvariant()
+$md5 = [Security.Cryptography.MD5]::Create()
+try {
+    $nameHashBytes = $md5.ComputeHash([Text.Encoding]::UTF8.GetBytes($nameSeed))
+}
+finally {
+    $md5.Dispose()
+}
+$nameHash = ([BitConverter]::ToString($nameHashBytes) -replace "-", "").ToLowerInvariant()
 $accountName = "aif-rta-$($nameHash.Substring(0, 8))"
 $accounts = Get-AzJson -Arguments @(
     "cognitiveservices", "account", "list", "--resource-group", $ResourceGroupName,
     "--subscription", $SubscriptionId
 )
 $existingAccount = @($accounts | Where-Object { [string]$_.name -eq $accountName }) | Select-Object -First 1
+$existingAccountRecoverable = $false
+$existingAccountRecoveryDetail = "No existing account was found at the deterministic application resource ID."
 $existingDeployments = @()
 if ($null -ne $existingAccount) {
+    $accountTags = if ($null -ne $existingAccount.PSObject.Properties["tags"]) {
+        $existingAccount.tags
+    }
+    else {
+        $null
+    }
+    $applicationTag = if ($null -ne $accountTags -and $null -ne $accountTags.PSObject.Properties["application"]) {
+        [string]$accountTags.application
+    }
+    else {
+        ""
+    }
+    $managedByTag = if ($null -ne $accountTags -and $null -ne $accountTags.PSObject.Properties["managed-by"]) {
+        [string]$accountTags.PSObject.Properties["managed-by"].Value
+    }
+    else {
+        ""
+    }
+    $accountSku = if ($null -ne $existingAccount.PSObject.Properties["sku"]) {
+        [string]$existingAccount.sku.name
+    }
+    else {
+        ""
+    }
+    $existingAccountRecoverable = (
+        [string]$existingAccount.kind -eq "AIServices" -and
+        [string]$existingAccount.location -eq $Location -and
+        $accountSku -eq "S0" -and
+        $applicationTag -eq "teams-realtime-translation" -and
+        $managedByTag -eq "terraform"
+    )
+    if ($existingAccountRecoverable) {
+        $existingAccountRecoveryDetail = (
+            "Existing account '$accountName' has the expected type, location, SKU, and ownership tags."
+        )
+    }
+    else {
+        $existingAccountRecoveryDetail = (
+            "Existing account '$accountName' does not match this application's type, location, SKU, and ownership tags. " +
+            "State recovery must not adopt a resource that may belong to another deployment."
+        )
+    }
+
     $deploymentResponse = Get-AzJson -Arguments @(
         "cognitiveservices", "account", "deployment", "list",
         "--name", $accountName,
@@ -288,6 +345,102 @@ foreach ($model in $requestedModels) {
         })
 }
 
+$existingTerraformResources = [System.Collections.Generic.List[object]]::new()
+if ($null -ne $existingAccount) {
+    $accountId = [string]$existingAccount.id
+    [void]$existingTerraformResources.Add([pscustomobject]@{
+            address = "azapi_resource.ai_services"
+            id      = $accountId
+        })
+
+    $resourceInventory = Get-AzJson -Arguments @(
+        "resource", "list", "--resource-group", $ResourceGroupName, "--subscription", $SubscriptionId
+    )
+    $projectId = "$accountId/projects/realtime-translation"
+    $existingProject = @(
+        $resourceInventory | Where-Object { [string]$_.id -eq $projectId }
+    ) | Select-Object -First 1
+    if ($null -ne $existingProject) {
+        [void]$existingTerraformResources.Add([pscustomobject]@{
+                address = "azapi_resource.project"
+                id      = [string]$existingProject.id
+            })
+    }
+
+    $deploymentAddresses = @{
+        "gpt-realtime-translate" = "azapi_resource.translation_deployment"
+        "gpt-realtime-whisper"   = "azapi_resource.transcription_deployment"
+        "gpt-5.6-luna"           = "azapi_resource.insights_deployment"
+    }
+    foreach ($deployment in $existingDeployments) {
+        $deploymentName = [string]$deployment.name
+        if ($deploymentAddresses.ContainsKey($deploymentName)) {
+            [void]$existingTerraformResources.Add([pscustomobject]@{
+                    address = $deploymentAddresses[$deploymentName]
+                    id      = "$accountId/deployments/$deploymentName"
+                })
+        }
+    }
+
+    $accountAssignments = Get-AzJson -Arguments @(
+        "role", "assignment", "list", "--assignee", $callerObjectId, "--scope", $accountId,
+        "--subscription", $SubscriptionId
+    )
+    $openAiRoleDefinitionId = (
+        "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/roleDefinitions/" +
+        $roleDefinitionIds.cognitive_services_openai_user
+    )
+    $openAiAssignment = @(
+        $accountAssignments | Where-Object {
+            [string]$_.principalId -eq $callerObjectId -and
+            [string]$_.scope -eq $accountId -and
+            [string]$_.roleDefinitionId -eq $openAiRoleDefinitionId
+        }
+    ) | Select-Object -First 1
+    if ($null -ne $openAiAssignment) {
+        [void]$existingTerraformResources.Add([pscustomobject]@{
+                address = "azapi_resource.participant_openai_user"
+                id      = [string]$openAiAssignment.id
+            })
+    }
+
+    if ($null -ne $existingProject) {
+        $projectAssignments = Get-AzJson -Arguments @(
+            "role", "assignment", "list", "--assignee", $callerObjectId, "--scope", $projectId,
+            "--subscription", $SubscriptionId
+        )
+        $projectRoles = @(
+            [pscustomobject]@{
+                address = "azapi_resource.participant_foundry_user"
+                id      = $roleDefinitionIds.foundry_user
+            },
+            [pscustomobject]@{
+                address = "azapi_resource.participant_foundry_project_manager"
+                id      = $roleDefinitionIds.foundry_project_manager
+            }
+        )
+        foreach ($projectRole in $projectRoles) {
+            $roleDefinitionId = (
+                "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/roleDefinitions/" +
+                $projectRole.id
+            )
+            $assignment = @(
+                $projectAssignments | Where-Object {
+                    [string]$_.principalId -eq $callerObjectId -and
+                    [string]$_.scope -eq $projectId -and
+                    [string]$_.roleDefinitionId -eq $roleDefinitionId
+                }
+            ) | Select-Object -First 1
+            if ($null -ne $assignment) {
+                [void]$existingTerraformResources.Add([pscustomobject]@{
+                        address = $projectRole.address
+                        id      = [string]$assignment.id
+                    })
+            }
+        }
+    }
+}
+
 $overallStatus = if (@($checks | Where-Object status -eq "fail").Count -eq 0) { "pass" } else { "fail" }
 $report = [pscustomobject]@{
     generated_at        = (Get-Date).ToUniversalTime().ToString("o")
@@ -296,8 +449,12 @@ $report = [pscustomobject]@{
     resource_group_name = $ResourceGroupName
     location            = $Location
     caller_object_id    = $callerObjectId
+    account_name        = $accountName
+    existing_account_recoverable = $existingAccountRecoverable
+    existing_account_recovery_detail = $existingAccountRecoveryDetail
     checks              = $checks
     models              = $modelResults
+    existing_terraform_resources = $existingTerraformResources
 }
 Write-JsonAtomically -Value $report -Path $OutputPath
 $report | ConvertTo-Json -Depth 12
