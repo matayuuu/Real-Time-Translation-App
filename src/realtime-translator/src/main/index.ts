@@ -18,6 +18,7 @@ import type {
   TranslationSecretRequest,
 } from "../shared/contracts";
 import { IPC_CHANNELS } from "../shared/ipc";
+import { ApplicationInfoService } from "./application-info-service";
 import { ConversationInsightsService } from "./conversation-insights-service";
 import { ContextService } from "./context-service";
 import { ElectronUpdateClient } from "./electron-update-client";
@@ -52,6 +53,7 @@ const repositoryContextPath = isDevelopment
   : null;
 
 let mainWindow: BrowserWindow | null = null;
+let applicationInfoService: ApplicationInfoService;
 let contextService: ContextService;
 let recordingService: RecordingService;
 let recordingExportService: RecordingExportService;
@@ -74,6 +76,11 @@ function requireTrustedSender(event: Electron.IpcMainInvokeEvent): void {
 }
 
 function registerIpcHandlers(): void {
+  ipcMain.handle(IPC_CHANNELS.applicationGetInfo, (event) => {
+    requireTrustedSender(event);
+    return applicationInfoService.get();
+  });
+
   ipcMain.handle(IPC_CHANNELS.configurationGet, (event) => {
     requireTrustedSender(event);
     return contextService.get();
@@ -277,6 +284,10 @@ if (!hasSingleInstanceLock) {
 
   app.whenReady().then(async () => {
     app.setAppUserModelId("com.matayuuu.realtimetranslator");
+    applicationInfoService = new ApplicationInfoService(
+      join(app.getPath("userData"), "application-info.json"),
+      app.getVersion(),
+    );
     contextService = new ContextService(
       join(app.getPath("userData"), "settings.json"),
       repositoryContextPath,

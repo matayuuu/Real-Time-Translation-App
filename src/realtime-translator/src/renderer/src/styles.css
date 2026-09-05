@@ -680,9 +680,44 @@ footer {
 
 footer {
   display: flex;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 20px;
   padding: 16px 4px 0;
+  font-size: 0.72rem;
+}
+
+.footer-notes {
+  display: grid;
+  gap: 4px;
+}
+
+.application-info {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 18px;
+  margin: 0;
+}
+
+.application-info > div {
+  display: grid;
+  gap: 3px;
+}
+
+.application-info > div + div {
+  border-left: 1px solid var(--cp-border);
+  padding-left: 18px;
+}
+
+.application-info dt {
+  color: var(--cp-text-muted);
+  font-size: 0.65rem;
+}
+
+.application-info dd {
+  margin: 0;
+  color: var(--cp-text);
+  font-family: Consolas, "Courier New", Courier, monospace;
   font-size: 0.72rem;
 }
 
@@ -723,6 +758,11 @@ footer {
 }
 
 @media (max-width: 760px) {
+  footer {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
   .export-panel {
     grid-template-columns: 1fr;
   }

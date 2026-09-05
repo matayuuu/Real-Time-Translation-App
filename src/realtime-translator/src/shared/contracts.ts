@@ -30,6 +30,11 @@ export interface AppConfiguration {
   context: RealtimeTranslationContext;
 }
 
+export interface ApplicationInfo {
+  version: string;
+  lastUpdatedAt: string;
+}
+
 export interface TranslationSecretRequest {
   source: AudioSource;
   targetLanguage: "en" | "ja";
@@ -93,6 +98,9 @@ export type AppEvent =
     };
 
 export interface DesktopBridge {
+  application: {
+    getInfo(): Promise<ApplicationInfo>;
+  };
   configuration: {
     get(): Promise<AppConfiguration | null>;
     choose(): Promise<AppConfiguration | null>;

@@ -10,6 +10,9 @@ import type {
 import { IPC_CHANNELS } from "../shared/ipc";
 
 const bridge: DesktopBridge = {
+  application: {
+    getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.applicationGetInfo),
+  },
   configuration: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.configurationGet),
     choose: () => ipcRenderer.invoke(IPC_CHANNELS.configurationChoose),

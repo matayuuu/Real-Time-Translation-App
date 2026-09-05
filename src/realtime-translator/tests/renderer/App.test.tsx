@@ -10,6 +10,12 @@ import {
 } from "../../src/renderer/src/App";
 
 const bridge: DesktopBridge = {
+  application: {
+    getInfo: vi.fn().mockResolvedValue({
+      version: "0.1.13",
+      lastUpdatedAt: "2026-09-05T00:45:00.000Z",
+    }),
+  },
   configuration: {
     get: vi.fn().mockResolvedValue(null),
     choose: vi.fn().mockResolvedValue(null),
@@ -136,6 +142,19 @@ describe("App", () => {
       })
         .disabled,
     ).toBe(true);
+  });
+
+  it("shows the installed version and last update time in the footer", async () => {
+    const { container } = render(<App />);
+
+    expect(await screen.findByText("v0.1.13")).toBeTruthy();
+    expect(screen.getByText("現在のバージョン")).toBeTruthy();
+    expect(screen.getByText("最終更新日時")).toBeTruthy();
+    const updatedAt = container.querySelector(
+      'time[datetime="2026-09-05T00:45:00.000Z"]',
+    );
+    expect(updatedAt).toBeTruthy();
+    expect(updatedAt?.textContent).toContain("2026");
   });
 
   it("shows consent only before a session starts or after an error", () => {

@@ -9,6 +9,7 @@ import {
 
 import type {
   AppConfiguration,
+  ApplicationInfo,
   AudioSource,
   ConversationExportOptions,
   ConversationTranscriptEntry,
@@ -75,6 +76,17 @@ function formatTime(value: string): string {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatDateTime(value: string): string {
+  return new Intl.DateTimeFormat("ja-JP", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
   }).format(new Date(value));
 }
 
@@ -420,6 +432,11 @@ export function ExportPanel({
 }
 
 export function App(): React.JSX.Element {
+  const [applicationInfo, setApplicationInfo] =
+    useState<ApplicationInfo | null>(null);
+  const [applicationInfoError, setApplicationInfoError] = useState<
+    string | null
+  >(null);
   const [configuration, setConfiguration] =
     useState<AppConfiguration | null>(null);
   const [configurationError, setConfigurationError] = useState<string | null>(
@@ -477,6 +494,15 @@ export function App(): React.JSX.Element {
   }, []);
 
   useEffect(() => {
+    void window.desktop.application
+      .getInfo()
+      .then((info) => {
+        setApplicationInfo(info);
+        setApplicationInfoError(null);
+      })
+      .catch((error: unknown) => {
+        setApplicationInfoError(errorMessage(error));
+      });
     void window.desktop.configuration
       .get()
       .then(setConfiguration)
@@ -971,12 +997,48 @@ export function App(): React.JSX.Element {
       ) : null}
 
       <footer>
-        <span>AI 翻訳音声は再生しません。混合 MP3 は端末内で生成されます。</span>
-        <span>
-          {configuration
-            ? `Realtime モデル提供終了予定: ${configuration.context.model_retirement_date}`
-            : "Azure API key は使用しません"}
-        </span>
+        <div className="footer-notes">
+          <span>AI 翻訳音声は再生しません。混合 MP3 は端末内で生成されます。</span>
+          <span>
+            {configuration
+              ? `Realtime モデル提供終了予定: ${configuration.context.model_retirement_date}`
+              : "Azure API key は使用しません"}
+          </span>
+        </div>
+        <dl
+          className="application-info"
+          aria-label="アプリ情報"
+          title={
+            applicationInfoError
+              ? `アプリ情報を取得できません: ${applicationInfoError}`
+              : undefined
+          }
+        >
+          <div>
+            <dt>現在のバージョン</dt>
+            <dd>
+              {applicationInfo
+                ? `v${applicationInfo.version}`
+                : applicationInfoError
+                  ? "取得できません"
+                  : "確認中..."}
+            </dd>
+          </div>
+          <div>
+            <dt>最終更新日時</dt>
+            <dd>
+              {applicationInfo ? (
+                <time dateTime={applicationInfo.lastUpdatedAt}>
+                  {formatDateTime(applicationInfo.lastUpdatedAt)}
+                </time>
+              ) : applicationInfoError ? (
+                "取得できません"
+              ) : (
+                "確認中..."
+              )}
+            </dd>
+          </div>
+        </dl>
       </footer>
     </main>
   );
