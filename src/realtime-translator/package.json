@@ -93,8 +93,12 @@
       ]
     },
     "nsis": {
+      "artifactName": "${name}-setup-${version}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "${name}-portable-${version}.${ext}"
     }
   }
 }
