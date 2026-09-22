@@ -39,6 +39,7 @@
     "src/renderer/src/**/*.d.ts",
     "src/shared/**/*.ts",
     "tests/renderer/**/*.ts",
-    "tests/renderer/**/*.tsx"
+    "tests/renderer/**/*.tsx",
+    "tests/fixtures/**/*.ts"
   ]
 }

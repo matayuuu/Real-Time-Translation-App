@@ -20,6 +20,11 @@ const bridge: DesktopBridge = {
     get: vi.fn().mockResolvedValue(null),
     choose: vi.fn().mockResolvedValue(null),
   },
+  authentication: {
+    prepare: vi.fn().mockResolvedValue(undefined),
+    signIn: vi.fn().mockResolvedValue(undefined),
+    cancel: vi.fn().mockResolvedValue(undefined),
+  },
   translation: {
     createSecret: vi.fn(),
   },

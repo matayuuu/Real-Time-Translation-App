@@ -65,9 +65,28 @@ describe("parseRealtimeTranslationContext", () => {
     const result = parseRealtimeTranslationContext(input);
 
     expect(result.insights).toBeUndefined();
+    expect(result.tenant_id).toBeUndefined();
     expect(result.translation.deployment_name).toBe(
       "gpt-realtime-translate",
     );
+  });
+
+  it("retains and normalizes a resource tenant ID", () => {
+    const input = validContext();
+    const realtime = input.realtime_translation as Record<string, unknown>;
+    realtime.tenant_id = "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA";
+
+    expect(parseRealtimeTranslationContext(input).tenant_id)
+      .toBe("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+  });
+
+  it.each(["tenant_id", "subscription_id"])("rejects unsafe or ambiguous %s values", (key) => {
+    for (const value of ["", "common", "organizations", "tenant.onmicrosoft.com", "abc & echo test", null]) {
+      const input = validContext();
+      const realtime = input.realtime_translation as Record<string, unknown>;
+      realtime[key] = value;
+      expect(() => parseRealtimeTranslationContext(input)).toThrow(`${key} must be a GUID`);
+    }
   });
 
   it("rejects incomplete setup state", () => {

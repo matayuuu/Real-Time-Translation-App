@@ -22,6 +22,8 @@ def test_preflight_is_read_only_and_checks_exact_quota_requirements() -> None:
     assert '$ErrorActionPreference = "Stop"' in text
     assert "Get-Command $Name" in text
     assert '"account", "show"' in text
+    assert "$account.tenantId" in text
+    assert "tenant_id           = $tenantId" in text
     assert '"group", "show"' in text
     assert '"provider", "show"' in text
     assert '"cognitiveservices", "model", "list"' in text
@@ -60,6 +62,8 @@ def test_setup_requires_preflight_shows_saved_plan_and_merges_context_atomically
     assert "apply -input=false $PlanPath" in text
     assert "Invoke-WithRetry -MaxAttempts 3" in text
     assert "caller_object_id" in text
+    assert "$preflight.tenant_id" in text
+    assert "tenant_id               = $tenantId" in text
     assert '"participant_object_id=$callerObjectId"' in text
     assert 'Add-Member -MemberType NoteProperty -Name "realtime_translation"' in text
     assert "ToString('N')).tmp" in text

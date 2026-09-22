@@ -104,6 +104,10 @@ $callerObjectId = [string]$preflight.caller_object_id
 if ([string]::IsNullOrWhiteSpace($callerObjectId)) {
     throw "Preflight report '$PreflightReport' did not contain caller_object_id; refusing to plan role assignments."
 }
+$tenantId = [string]$preflight.tenant_id
+if ($tenantId -notmatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") {
+    throw "Preflight report did not contain a valid tenant_id; refusing to generate unscoped authentication settings."
+}
 
 $terraformVariables = @(
     "-var", "subscription_id=$SubscriptionId",
@@ -228,6 +232,7 @@ $realtimeTranslation = [pscustomobject]@{
     setup_status            = "complete"
     generated_at            = (Get-Date).ToUniversalTime().ToString("o")
     subscription_id         = $SubscriptionId
+    tenant_id               = $tenantId
     resource_group_name     = $ResourceGroupName
     location                = $Location
     ai_services_account_name = $outputs.account_name.value

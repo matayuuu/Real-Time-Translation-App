@@ -11,14 +11,23 @@ AI 翻訳音声はミュートされ、会議へ送出されません。
 ## 前提条件
 
 - Windows 11、Node.js、PowerShell 7、Azure CLI、Terraform
-- Azure では `az login` による Entra ID/RBAC 認証（API key は不要）
+- Azure CLI 2.61 以降による Entra ID/RBAC 認証（API key は不要）
 - setup 済みのリポジトリ ルート `.realtime-translation/context.json` 内の
   `realtime_translation` ブロック
 - 同意済みの音声取り込み。ヘッドセットを推奨します。
 
 `.realtime-translation/context.json` と Terraform state は commit しないでください。
 
+認証が必要になると、録音開始前に指定テナントのブラウザー認証を開きます。
+setup が出力する `tenant_id` を使用し、アプリ専用の CLI profile に認証を保持するため、
+普段の Azure CLI の既定 subscription は変わりません。初回だけは別途サインインが必要です。
+会話中に再認証した場合は録音・字幕を保持して一時停止し、RESUME で再開できます。
+
 ## 開発
+
+インストール済み版や別の開発版が起動している場合は、未保存の録音を保存してから
+既存アプリを終了してください。多重起動防止のため、既存アプリが動いている間は
+`npm run dev` で新しい開発版を起動できません。その場合は端末に案内を表示します。
 
 ```powershell
 npm ci

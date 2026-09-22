@@ -21,9 +21,9 @@
 
 ## 事前条件と同意
 
-- Windows 11、PowerShell 7、Azure CLI、Terraform、Node.js を用意します。
-- `az login` で Microsoft Entra ID にサインインします。API key や client secret は
-  使用しません。
+- Windows 11、PowerShell 7、Azure CLI 2.61 以降、Terraform、Node.js を用意します。
+- Azure の setup には `az login` を使用します。アプリ実行時は、必要な場合に既定ブラウザーが
+  開き、接続先テナントへサインインします。API key や長期の client secret は使用しません。
 - ヘッドセットを使ってください。スピーカー出力をループバックで取り込むため、ハウリング、
   音声の重複、意図しない録音を避けられます。
 - 会議参加者、周囲の人、組織の録音・翻訳・データ送信ポリシーに従い、必要な同意を
@@ -119,6 +119,7 @@ keyless 接続の構成に使用します。
     "setup_status": "complete",
     "generated_at": "2026-09-05T00:00:00Z",
     "subscription_id": "<SUBSCRIPTION_ID>",
+    "tenant_id": "<RESOURCE_TENANT_ID>",
     "resource_group_name": "<RESOURCE_GROUP_NAME>",
     "location": "eastus2",
     "ai_services_account_name": "aif-rta-xxxxxxxx",
@@ -151,11 +152,59 @@ keyless 接続の構成に使用します。
 }
 ```
 
-`realtime_translation` と、上記の `insights` 以外のフィールドは必須です。各 deployment の
-`capacity` は 1 以上の整数、それ以外の文字列フィールドは空にできません。
+`realtime_translation` と、上記の `insights`・`tenant_id` 以外のフィールドは必須です。
+新しい setup は `tenant_id` も出力します。`subscription_id` と、指定する場合の `tenant_id` は
+GUID です。各 deployment の `capacity` は 1 以上の整数、それ以外の文字列フィールドは空にできません。
 `openai_endpoint` は `https://*.openai.azure.com` 形式である必要があります。`insights` は
 省略できますが、その場合は会話要約と Next Actions を生成できません。API key や client secret は
-context に保存せず、Azure CLI でサインインした Microsoft Entra ID を使用します。
+context に保存せず、Azure CLI を介した Microsoft Entra ID 認証を使用します。
+
+翻訳と Markdown 生成のトークン取得では `realtime_translation.subscription_id` を明示的に
+指定します。Azure CLI の既定 subscription を別環境へ切り替えても、選択中の context の
+subscription に対応するテナントを使用します。対象テナントへのサインインと、対象リソースの
+RBAC 権限は引き続き必要です。アプリの専用 CLI profile を使うため、普段の Azure CLI の既定
+subscription やサインイン状態は変更しません。
+
+### ブラウザーでの自動再認証
+
+会話開始時は **認証確認 → 2 系統の Foundry 接続用シークレットの取得 → 音声取得・録音**
+の順で進みます。未サインイン、認証期限切れ、MFA など再認証が必要な場合だけ、アプリが裏側で
+次のコマンドを実行します。テナントは context の値に固定し、利用者が毎回選ぶ必要はありません。
+
+```powershell
+az login --tenant <RESOURCE_TENANT_ID> --scope https://ai.azure.com/.default --output none --only-show-errors
+```
+
+Windows でもブラウザーを使い、CLI の subscription 選択待ちを防ぐため、子プロセスだけに
+`AZURE_CORE_ENABLE_BROKER_ON_WINDOWS=false` と `AZURE_CORE_LOGIN_EXPERIENCE_V2=off` を渡します。
+これらの設定をグローバルな `az config` に書き込むことはありません。CLI は引き続き必要ですが、
+新しい Entra アプリ登録やクライアントシークレットは不要です。
+
+CLI の認証キャッシュは `%APPDATA%\teams-realtime-translator\azure-cli\profiles\<tenant-id>\` に
+分離されます。初回は、通常の CLI でサインイン済みでもブラウザー認証が必要です。Windows 上の
+トークン保存は Azure CLI / MSAL の OS 保護を使用し、アプリはトークンを context、画面、ログへ
+保存・出力しません。実行中は有効なアクセストークンを共有し、期限が近づいたら再取得します。
+
+`tenant_id` がない旧 context は、**指定 subscription の** CLI メタデータからテナントを特定し、
+アプリのローカル設定に ID だけを保存します。既定 subscription や `common` にはフォールバック
+しません。メタデータもない場合は、Azure portal で確認したリソースのテナント ID を context の
+`tenant_id` に設定して選び直してください。期限切れトークン内のテナントからは推測しません。
+
+ブラウザーで認証を終えると元の処理を1回再試行します。スピーカー・マイク・要約で認証処理を
+共有し、同じ接続先の同時要求で複数の認証画面を開きません。アプリの **認証をキャンセル** で中止
+でき、3分以内に認証が終わらない場合も待機を終了します。開いたブラウザーのタブは閉じて構いません。
+キャンセルや失敗後は、自動再接続でログインを繰り返さず、START CONVERSATION、RESUME、
+または保存の再試行で認証をやり直します。
+
+別のアカウントを選択して対象 subscription が見つからない場合は、認証エラー欄の
+**サインインし直す** を選び、対象リソースへの権限を持つアカウントを選び直してください。
+この明示操作では有効なトークンのキャッシュも使わず、同じ接続先テナントで再認証します。
+録音中は STOP で一時停止してから実行できます。自動の認証確認中も STOP は利用できます。
+
+会話中の再認証では録音と送信を一時停止し、既存の録音・字幕は保持します。認証後は **RESUME**
+で再開してください。Markdown 保存中にキャンセルした場合も録音を保持するため、保存を再試行
+するか MP3 のみ保存できます。権限不足、設定不一致、通信障害ではブラウザーを開き続けません。
+組織の MFA・条件付きアクセスは引き続き適用され、無期限のログインは保証しません。
 
 手編集で endpoint、deployment、subscription を別環境の値に置き換えないでください。
 環境を切り替える場合は、その環境で setup を実行した context を使用します。
@@ -229,12 +278,43 @@ MP3 の保存先を選びます。オプションを選択すると親フォル�
 |---|---|
 | システム音声が表示されない | Windows の出力デバイスと音量を確認し、対象アプリが実際にそのデバイスへ出力しているか確認します。仮想オーディオ デバイスや排他モードを使う場合は組織の端末ポリシーも確認します。 |
 | マイクが無音・選択できない | Windows の Privacy & security の microphone permission、アプリ内で選んだ入力デバイス、ヘッドセットの物理ミュートを確認します。 |
-| Azure RBAC / 401 / 403 | `az login` と対象 subscription を確認します。context の account / endpoint / deployment を手編集せず、setup の完了後に再起動します。権限の反映には時間がかかることがあります。 |
+| Azure RBAC / 401 / 403 | アプリで認証したアカウント、対象 subscription、リソースの RBAC 権限を確認します。context の account / endpoint / deployment を手編集しないでください。権限の反映には時間がかかることがあります。 |
+| サインインが必要 / 認証期限切れ | アプリが指定テナントのブラウザー認証を開きます。完了後に自動再試行します。キャンセルした場合は START CONVERSATION / RESUME / 保存を再試行してください。 |
+| 接続先テナントを特定できない | 旧 context と CLI メタデータの両方にテナント情報がありません。リソースのテナント ID を context の `realtime_translation.tenant_id` に設定して選び直してください。 |
+| 認証用ブラウザーを開けない / タイムアウト | Windows の既定ブラウザーとネットワークを確認し、古い認証タブを閉じて再試行します。CLI の device-code フォールバックを非表示のまま待ち続けることはありません。 |
+| `Token tenant ... does not match resource tenant` / 400 | トークンと Foundry リソースのテナントが異なります。下記の手順で対象 subscription とサインイン先を確認します。リソースの再作成や API key への切り替えは不要です。 |
 | quota または deployment 作成失敗 | setup 前の preflight report を確認します。Realtime 2 deployment は capacity 5、Luna は capacity 30 を要求します。provider の登録や quota 増量は subscription 管理者に依頼します。 |
 | WebRTC 接続できない | 組織の firewall、proxy、VPN、TLS inspection が WebRTC の HTTPS/WSS/STUN/TURN 通信を妨げていないか、ネットワーク管理者に確認します。回避のために firewall を無断で変更しないでください。 |
 | Markdown を選択できない | setup を再実行し、選択中の context に `insights` deployment が含まれることを確認します。会話ログが空の場合も選択できません。 |
-| Markdown 生成に失敗する | `az login`、Luna deployment、quota、ネットワークを確認します。一時録音は残るため、再試行するかオプションを外して MP3 のみ保存できます。 |
+| Markdown 生成に失敗する | アプリの認証状態、Luna deployment、quota、ネットワークを確認します。一時録音は残るため、再試行するかオプションを外して MP3 のみ保存できます。 |
 | 日本語訳は続くが EN 原文だけ止まる | アプリは複数の Realtime transcript event 形式を処理し、訳文だけが45秒以上続く場合は該当セッションを自動再接続します。再接続中の表示とエラー内容を確認してください。 |
+
+### テナント不一致の対処
+
+アプリで選択している context の subscription と、そのテナントを確認します。
+以下はリポジトリのルートで実行する例です。別の context を選択している場合はパスを変更してください。
+
+```powershell
+$context = (Get-Content -Raw .\.realtime-translation\context.json | ConvertFrom-Json).realtime_translation
+az account show --subscription $context.subscription_id `
+  --query "{subscriptionId:id,tenantId:tenantId}" --output json
+```
+
+対象 subscription が見つからない場合は、Foundry リソースが属するテナント ID を Azure portal で
+確認し、context の `tenant_id` を確認してください。新しいアプリは専用 profile でブラウザー認証
+します。通常の CLI で `az login` してもアプリ専用 profile は更新されません。エラー中の
+`Token tenant` は現在の誤ったテナントであり、接続先として指定する値ではありません。
+
+旧版アプリでは Azure CLI の既定 subscription が使われます。更新前の一時的な対処として、
+次を実行してアプリから接続を再試行できます。この操作は他の Azure CLI 作業にも影響するため、
+必要に応じて元の subscription を記録しておいてください。
+
+```powershell
+az account set --subscription $context.subscription_id
+```
+
+更新後も同じエラーが続く場合は、context の endpoint と subscription が同じ環境のものかを
+確認してください。異なる環境の設定を混ぜず、その環境の setup が生成した context を選び直します。
 
 ## cleanup
 

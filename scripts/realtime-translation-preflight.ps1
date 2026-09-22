@@ -113,6 +113,14 @@ else {
     Add-Check -Name "active-subscription" -Status "pass" -Detail "Azure CLI is scoped to the requested subscription."
 }
 
+$tenantId = [string]$account.tenantId
+if ($tenantId -notmatch "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$") {
+    Add-Check -Name "resource-tenant" -Status "fail" -Detail "Azure CLI did not return a valid tenant ID."
+}
+else {
+    Add-Check -Name "resource-tenant" -Status "pass" -Detail "The resource tenant ID is available for tenant-scoped sign-in."
+}
+
 $resourceGroup = Get-AzJson -Arguments @(
     "group", "show", "--name", $ResourceGroupName, "--subscription", $SubscriptionId
 )
@@ -446,6 +454,7 @@ $report = [pscustomobject]@{
     generated_at        = (Get-Date).ToUniversalTime().ToString("o")
     overall_status      = $overallStatus
     subscription_id     = $SubscriptionId
+    tenant_id           = $tenantId
     resource_group_name = $ResourceGroupName
     location            = $Location
     caller_object_id    = $callerObjectId

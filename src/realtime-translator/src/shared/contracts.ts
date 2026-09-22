@@ -13,6 +13,7 @@ export interface RealtimeTranslationContext {
   setup_status: "complete";
   generated_at: string;
   subscription_id: string;
+  tenant_id?: string;
   resource_group_name: string;
   location: string;
   ai_services_account_name: string;
@@ -33,6 +34,12 @@ export interface AppConfiguration {
 export interface ApplicationInfo {
   version: string;
   lastUpdatedAt: string;
+}
+
+export interface AuthenticationStatus {
+  state: "checking" | "signing-in" | "ready" | "error";
+  message: string;
+  tenantId?: string;
 }
 
 export interface TranslationSecretRequest {
@@ -89,6 +96,10 @@ export interface ExportRecordingResult {
 
 export type AppEvent =
   | {
+      type: "authentication-changed";
+      status: AuthenticationStatus;
+    }
+  | {
       type: "configuration-changed";
       configuration: AppConfiguration;
     }
@@ -104,6 +115,11 @@ export interface DesktopBridge {
   configuration: {
     get(): Promise<AppConfiguration | null>;
     choose(): Promise<AppConfiguration | null>;
+  };
+  authentication: {
+    prepare(): Promise<void>;
+    signIn(): Promise<void>;
+    cancel(): Promise<void>;
   };
   translation: {
     createSecret(request: TranslationSecretRequest): Promise<TranslationSessionSecret>;

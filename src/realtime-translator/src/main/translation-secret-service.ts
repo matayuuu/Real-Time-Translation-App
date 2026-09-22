@@ -1,12 +1,10 @@
-import { AzureCliCredential } from "@azure/identity";
-
 import type {
   RealtimeTranslationContext,
   TranslationSecretRequest,
   TranslationSessionSecret,
 } from "../shared/contracts";
+import type { FoundryTokenProvider } from "./authentication-service";
 
-const AZURE_REALTIME_SCOPE = "https://ai.azure.com/.default";
 const REQUEST_TIMEOUT_MS = 15_000;
 
 interface ClientSecretResponse {
@@ -15,7 +13,10 @@ interface ClientSecretResponse {
 }
 
 export class TranslationSecretService {
-  private readonly credential = new AzureCliCredential();
+  public constructor(
+    private readonly authentication: FoundryTokenProvider,
+    private readonly fetcher: typeof fetch = fetch,
+  ) {}
 
   public async create(
     context: RealtimeTranslationContext,
@@ -27,15 +28,15 @@ export class TranslationSecretService {
       );
     }
 
-    const accessToken = await this.credential.getToken(AZURE_REALTIME_SCOPE);
+    const accessToken = await this.authentication.getToken(context);
     if (!accessToken?.token) {
       throw new Error(
-        "Microsoft Entra token acquisition failed. Run az login and try again.",
+        "Microsoft Entra token acquisition failed. Please retry sign-in.",
       );
     }
 
     const endpoint = context.openai_endpoint.replace(/\/+$/, "");
-    const response = await fetch(
+    const response = await this.fetcher(
       `${endpoint}/openai/v1/realtime/translations/client_secrets`,
       {
         method: "POST",

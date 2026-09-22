@@ -1,17 +1,11 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { RealtimeTranslationContext } from "../../src/shared/contracts";
 
-const { getToken } = vi.hoisted(() => ({
-  getToken: vi.fn().mockResolvedValue({ token: "entra-token" }),
-}));
-vi.mock("@azure/identity", () => ({
-  AzureCliCredential: class {
-    public readonly getToken = getToken;
-  },
-}));
+const getToken = vi.fn().mockResolvedValue({ token: "entra-token" });
+const authentication = { getToken };
 
 import { TranslationSecretService } from "../../src/main/translation-secret-service";
 
@@ -46,7 +40,11 @@ const context: RealtimeTranslationContext = {
 
 describe("TranslationSecretService", () => {
   beforeEach(() => {
-    getToken.mockClear();
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("requests an Azure translation secret without unsupported session.type", async () => {
@@ -58,7 +56,7 @@ describe("TranslationSecretService", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const result = await new TranslationSecretService().create(context, {
+    const result = await new TranslationSecretService(authentication).create(context, {
       source: "speaker",
       targetLanguage: "ja",
     });
@@ -68,7 +66,7 @@ describe("TranslationSecretService", () => {
       endpoint: context.openai_endpoint,
       expiresAt: 123,
     });
-    expect(getToken).toHaveBeenCalledWith("https://ai.azure.com/.default");
+    expect(getToken).toHaveBeenCalledWith(context);
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     const body = JSON.parse(String(request.body)) as {
       session: Record<string, unknown>;
@@ -96,7 +94,7 @@ describe("TranslationSecretService", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    await new TranslationSecretService().create(context, {
+    await new TranslationSecretService(authentication).create(context, {
       source: "microphone",
       targetLanguage: "ja",
     });
@@ -119,12 +117,70 @@ describe("TranslationSecretService", () => {
     });
   });
 
+  it("uses the selected subscription after the context changes", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation(async () =>
+        new Response(JSON.stringify({ value: "ephemeral-secret-value" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const service = new TranslationSecretService(authentication);
+    const nextContext = {
+      ...context,
+      subscription_id: "11111111-1111-1111-1111-111111111111",
+    };
+
+    await service.create(context, {
+      source: "speaker",
+      targetLanguage: "ja",
+    });
+    await service.create(nextContext, {
+      source: "microphone",
+      targetLanguage: "ja",
+    });
+
+    expect(getToken).toHaveBeenCalledTimes(2);
+    expect(getToken).toHaveBeenNthCalledWith(1, context);
+    expect(getToken).toHaveBeenNthCalledWith(2, nextContext);
+  });
+
+  it("does not fall back to another account when authentication fails", async () => {
+    const authenticationError = new Error("Configured subscription is unavailable.");
+    getToken.mockRejectedValueOnce(authenticationError);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      new TranslationSecretService(authentication).create(context, {
+        source: "speaker",
+        targetLanguage: "ja",
+      }),
+    ).rejects.toBe(authenticationError);
+
+    expect(getToken).toHaveBeenCalledExactlyOnceWith(context);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("rejects English output for either source", async () => {
     await expect(
-      new TranslationSecretService().create(context, {
+      new TranslationSecretService(authentication).create(context, {
         source: "microphone",
         targetLanguage: "en",
       }),
     ).rejects.toThrow("Invalid target language");
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it.each([400, 401, 403, 429, 500])("does not repeat authentication for an HTTP %s response", async (status) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("Foundry failure", { status }));
+    const service = new TranslationSecretService(authentication, fetcher);
+
+    await expect(service.create(context, { source: "speaker", targetLanguage: "ja" }))
+      .rejects.toThrow(`(${status}`);
+    expect(getToken).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledOnce();
   });
 });

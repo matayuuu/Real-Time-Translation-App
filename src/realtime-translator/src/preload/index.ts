@@ -17,6 +17,11 @@ const bridge: DesktopBridge = {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.configurationGet),
     choose: () => ipcRenderer.invoke(IPC_CHANNELS.configurationChoose),
   },
+  authentication: {
+    prepare: () => ipcRenderer.invoke(IPC_CHANNELS.authenticationPrepare),
+    signIn: () => ipcRenderer.invoke(IPC_CHANNELS.authenticationSignIn),
+    cancel: () => ipcRenderer.invoke(IPC_CHANNELS.authenticationCancel),
+  },
   translation: {
     createSecret: (request: TranslationSecretRequest) =>
       ipcRenderer.invoke(IPC_CHANNELS.translationCreateSecret, request),

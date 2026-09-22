@@ -1,6 +1,7 @@
 import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 
+import { requireAzureGuid } from "../shared/azure-identifiers";
 import type {
   AppConfiguration,
   ModelDeploymentContext,
@@ -104,11 +105,13 @@ export function parseRealtimeTranslationContext(
       "generated_at",
       "realtime_translation",
     ),
-    subscription_id: requireString(
-      value,
-      "subscription_id",
-      "realtime_translation",
+    subscription_id: requireAzureGuid(
+      value.subscription_id,
+      "realtime_translation.subscription_id",
     ),
+    ...(value.tenant_id === undefined
+      ? {}
+      : { tenant_id: requireAzureGuid(value.tenant_id, "realtime_translation.tenant_id") }),
     resource_group_name: requireString(
       value,
       "resource_group_name",

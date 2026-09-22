@@ -1,4 +1,4 @@
-import type { AudioSource } from "@shared/contracts";
+import type { AudioSource, TranslationSessionSecret } from "@shared/contracts";
 
 export type TranslationConnectionState =
   | "idle"
@@ -130,30 +130,47 @@ export function parseTranscriptEvent(
   return result;
 }
 
-function waitForDataChannelOpen(channel: RTCDataChannel): Promise<void> {
+function waitForDataChannelOpen(
+  channel: RTCDataChannel,
+  signal: AbortSignal,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
   if (channel.readyState === "open") {
     return Promise.resolve();
   }
   return new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(() => {
-      reject(new Error("Realtime data channel timed out."));
-    }, CONNECT_TIMEOUT_MS);
-    channel.addEventListener(
-      "open",
+    const cleanup = (): void => {
+      window.clearTimeout(timeout);
+      channel.removeEventListener("open", onOpen);
+      channel.removeEventListener("error", onError);
+      channel.removeEventListener("close", onError);
+      signal.removeEventListener("abort", onAbort);
+    };
+    const onOpen = (): void => {
+      cleanup();
+      resolve();
+    };
+    const onError = (): void => {
+      cleanup();
+      reject(new Error("Realtime data channel failed to open."));
+    };
+    const onAbort = (): void => {
+      cleanup();
+      reject(signal.reason);
+    };
+    const timeout = window.setTimeout(
       () => {
-        window.clearTimeout(timeout);
-        resolve();
+        cleanup();
+        reject(new Error("Realtime data channel timed out."));
       },
-      { once: true },
+      CONNECT_TIMEOUT_MS,
     );
-    channel.addEventListener(
-      "error",
-      () => {
-        window.clearTimeout(timeout);
-        reject(new Error("Realtime data channel failed to open."));
-      },
-      { once: true },
-    );
+    channel.addEventListener("open", onOpen, { once: true });
+    channel.addEventListener("error", onError, { once: true });
+    channel.addEventListener("close", onError, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -162,6 +179,8 @@ export class TranslationSession {
   private dataChannel: RTCDataChannel | null = null;
   private stopRequested = false;
   private reconnecting = false;
+  private reconnectTask: Promise<void> | null = null;
+  private connectionController: AbortController | null = null;
   private closedEventResolver: (() => void) | null = null;
   private streamSequence = 0;
   private currentStreamId = "";
@@ -173,9 +192,9 @@ export class TranslationSession {
     private readonly callbacks: TranslationSessionCallbacks,
   ) {}
 
-  public async start(): Promise<void> {
+  public async start(secret?: TranslationSessionSecret): Promise<void> {
     this.stopRequested = false;
-    await this.connect("connecting");
+    await this.connect("connecting", secret);
   }
 
   public pause(): void {
@@ -188,41 +207,70 @@ export class TranslationSession {
     }
   }
 
+  public async prepareResume(): Promise<void> {
+    await this.reconnectTask;
+    if (this.stopRequested) {
+      throw new Error("The translation session has already ended.");
+    }
+    if (this.dataChannel?.readyState !== "open") {
+      await this.reconnect(`${this.source} Realtime session is resuming.`);
+    }
+    if (this.stopRequested || !this.isConnected()) {
+      throw new Error(`${this.source} Realtime session could not reconnect.`);
+    }
+  }
+
   public async close(): Promise<void> {
     this.stopRequested = true;
+    this.audioTrack.enabled = false;
+    this.connectionController?.abort();
     this.callbacks.onState("closing");
     const channel = this.dataChannel;
-    if (channel?.readyState === "open") {
-      const closed = new Promise<void>((resolve) => {
-        this.closedEventResolver = resolve;
-      });
-      channel.send(JSON.stringify({ type: "session.close" }));
-      await Promise.race([
-        closed,
-        new Promise<void>((resolve) =>
-          window.setTimeout(resolve, CLOSE_TIMEOUT_MS),
-        ),
-      ]);
+    let timeout: number | undefined;
+    try {
+      if (channel?.readyState === "open") {
+        const closed = new Promise<void>((resolve) => {
+          this.closedEventResolver = resolve;
+        });
+        channel.send(JSON.stringify({ type: "session.close" }));
+        await Promise.race([
+          closed,
+          new Promise<void>((resolve) => {
+            timeout = window.setTimeout(resolve, CLOSE_TIMEOUT_MS);
+          }),
+        ]);
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      this.callbacks.onFinalize();
+      this.disposeConnection();
+      this.callbacks.onState("closed");
     }
-    this.callbacks.onFinalize();
-    this.disposeConnection();
-    this.callbacks.onState("closed");
   }
 
   private async connect(
     initialState: "connecting" | "reconnecting",
+    initialSecret?: TranslationSessionSecret,
   ): Promise<void> {
+    if (this.stopRequested) {
+      return;
+    }
+    this.connectionController?.abort();
+    const controller = new AbortController();
+    this.connectionController = controller;
     this.callbacks.onState(initialState);
     this.streamSequence += 1;
     this.currentStreamId = `${this.source}-${this.streamSequence}`;
     this.inputTranscriptMissingSince = null;
-    const secret = await window.desktop.translation.createSecret({
-      source: this.source,
-      targetLanguage: "ja",
-    });
-    if (this.stopRequested) {
-      return;
-    }
+    const secret =
+      initialSecret &&
+      (initialSecret.expiresAt === undefined || initialSecret.expiresAt * 1_000 > Date.now() + 5_000)
+        ? initialSecret
+        : await window.desktop.translation.createSecret({
+            source: this.source,
+            targetLanguage: "ja",
+          });
+    controller.signal.throwIfAborted();
 
     const peerConnection = new RTCPeerConnection();
     this.peerConnection = peerConnection;
@@ -255,7 +303,9 @@ export class TranslationSession {
     };
 
     const offer = await peerConnection.createOffer();
+    controller.signal.throwIfAborted();
     await peerConnection.setLocalDescription(offer);
+    controller.signal.throwIfAborted();
     if (!offer.sdp) {
       throw new Error("Realtime WebRTC offer did not contain SDP.");
     }
@@ -268,7 +318,10 @@ export class TranslationSession {
           "Content-Type": "application/sdp",
         },
         body: offer.sdp,
-        signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+        signal: AbortSignal.any([
+          controller.signal,
+          AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+        ]),
       },
     );
     if (!response.ok) {
@@ -276,11 +329,15 @@ export class TranslationSession {
         `Realtime SDP negotiation failed (${response.status} ${response.statusText}).`,
       );
     }
+    const answer = await response.text();
+    controller.signal.throwIfAborted();
     await peerConnection.setRemoteDescription({
       type: "answer",
-      sdp: await response.text(),
+      sdp: answer,
     });
-    await waitForDataChannelOpen(channel);
+    controller.signal.throwIfAborted();
+    await waitForDataChannelOpen(channel, controller.signal);
+    controller.signal.throwIfAborted();
     this.callbacks.onState("connected");
   }
 
@@ -353,11 +410,19 @@ export class TranslationSession {
     }
   }
 
-  private async reconnect(reason: string): Promise<void> {
+  private reconnect(reason: string): Promise<void> {
     if (this.stopRequested || this.reconnecting) {
-      return;
+      return this.reconnectTask ?? Promise.resolve();
     }
     this.reconnecting = true;
+    this.reconnectTask = this.reconnectWithRetry(reason).finally(() => {
+      this.reconnecting = false;
+      this.reconnectTask = null;
+    });
+    return this.reconnectTask;
+  }
+
+  private async reconnectWithRetry(reason: string): Promise<void> {
     this.callbacks.onError(reason);
     this.callbacks.onFinalize();
     this.disposeConnection();
@@ -368,25 +433,35 @@ export class TranslationSession {
       }
       this.callbacks.onState("reconnecting");
       await new Promise<void>((resolve) => window.setTimeout(resolve, delay));
+      if (this.stopRequested) {
+        break;
+      }
       try {
         await this.connect("reconnecting");
-        this.reconnecting = false;
         return;
       } catch (error) {
         this.disposeConnection();
+        if (this.stopRequested) {
+          break;
+        }
         this.callbacks.onError(
           error instanceof Error ? error.message : String(error),
         );
       }
     }
 
-    this.reconnecting = false;
     if (!this.stopRequested) {
       this.callbacks.onState("error");
     }
   }
 
+  private isConnected(): boolean {
+    return this.dataChannel?.readyState === "open";
+  }
+
   private disposeConnection(): void {
+    this.connectionController?.abort();
+    this.connectionController = null;
     if (this.dataChannel) {
       this.dataChannel.onmessage = null;
       this.dataChannel.onclose = null;

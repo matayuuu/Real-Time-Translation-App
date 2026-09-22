@@ -9,7 +9,6 @@
 | [@breezystack/lamejs](https://www.npmjs.com/package/@breezystack/lamejs) | LGPL-3.0 | [LGPL-3.0](https://www.gnu.org/licenses/lgpl-3.0.html) |
 | [Electron](https://www.electronjs.org/) | MIT | [Electron LICENSE](https://github.com/electron/electron/blob/main/LICENSE) |
 | [React](https://react.dev/) | MIT | [React LICENSE](https://github.com/facebook/react/blob/main/LICENSE) |
-| [Azure Identity for JavaScript](https://www.npmjs.com/package/@azure/identity) | MIT | [Azure SDK for JavaScript LICENSE](https://github.com/Azure/azure-sdk-for-js/blob/main/LICENSE) |
 
 `@breezystack/lamejs` を利用・配布する場合は LGPL-3.0 の条件を確認してください。バンドル、
 installer、派生物の配布時は、依存関係の実際のバージョンとライセンス通知を再確認し、

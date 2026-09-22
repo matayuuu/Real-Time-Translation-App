@@ -262,6 +262,31 @@ footer {
   font-size: 0.86rem;
 }
 
+.authentication-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  border: 1px solid var(--cp-warning);
+  border-radius: 10px;
+  background: var(--cp-surface-soft);
+  padding: 12px 14px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.authentication-notice > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.authentication-notice small {
+  color: var(--cp-text-muted);
+}
+
 .notice-bar {
   display: flex;
   align-items: center;

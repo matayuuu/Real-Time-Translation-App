@@ -1,12 +1,10 @@
-import { AzureCliCredential } from "@azure/identity";
-
 import type {
   ConversationExportOptions,
   ConversationTranscriptEntry,
   RealtimeTranslationContext,
 } from "../shared/contracts";
+import type { FoundryTokenProvider } from "./authentication-service";
 
-const AZURE_OPENAI_SCOPE = "https://ai.azure.com/.default";
 const REQUEST_TIMEOUT_MS = 60_000;
 const MAX_TRANSCRIPT_ENTRIES = 20_000;
 const MAX_TRANSCRIPT_CHARACTERS = 500_000;
@@ -18,10 +16,6 @@ const INSTRUCTIONS = `あなたは会議記録を作成する日本語アシス�
 summary_markdown は、概要、主な論点、決定事項、未解決事項を簡潔な Markdown でまとめてください。
 next_actions_markdown は、明示された行動だけを Markdown のチェックリストにしてください。担当者や期限が明示されていない場合は「未定」とし、行動がなければ「明確な Next Action はありません。」と記載してください。
 各値には文書タイトルとなるレベル1見出しを含めず、本文だけを返してください。`;
-
-interface TokenCredential {
-  getToken(scopes: string): Promise<{ token: string } | null>;
-}
 
 interface GeneratedDocuments {
   summary?: string;
@@ -184,7 +178,7 @@ function responseFormat(options: ConversationExportOptions): {
 
 export class ConversationInsightsService {
   public constructor(
-    private readonly credential: TokenCredential = new AzureCliCredential(),
+    private readonly authentication: FoundryTokenProvider,
     private readonly fetcher: typeof fetch = fetch,
   ) {}
 
@@ -203,10 +197,10 @@ export class ConversationInsightsService {
     }
 
     const normalizedTranscript = normalizeTranscript(transcript);
-    const accessToken = await this.credential.getToken(AZURE_OPENAI_SCOPE);
+    const accessToken = await this.authentication.getToken(context);
     if (!accessToken?.token) {
       throw new Error(
-        "Microsoft Entra token acquisition failed. Run az login and try again.",
+        "Microsoft Entra token acquisition failed. Please retry sign-in.",
       );
     }
 

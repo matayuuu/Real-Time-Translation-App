@@ -24,7 +24,7 @@ Windows 11 上で動く、オンライン会議、通話、動画や配信向け
 - Windows 11
 - Node.js 22
 - PowerShell 7
-- Azure CLI
+- Azure CLI 2.61 以降
 - Terraform
 - 利用権限のある既存の Azure resource group
 
@@ -55,6 +55,11 @@ pwsh -File ./scripts/setup-realtime-translation.ps1 \
 setup は Azure 環境を検査して Terraform plan を表示し、明示的に `APPLY` と入力した場合
 だけリソースを作成します。生成される `.realtime-translation/context.json` はローカル専用で、
 Git には保存されません。
+
+アプリ実行時は、認証が必要になると録音前に指定テナントのブラウザー認証を開きます。
+認証完了後に処理を再試行するため、通常利用で手動の `az login` は不要です。アプリ専用の
+認証キャッシュを使い、普段の Azure CLI の既定 subscription は変更しません。初回は
+別途サインインが必要です。
 
 既存環境から更新する場合も setup を再実行し、Markdown 生成用の `gpt-5.6-luna`
 deployment が plan に含まれることを確認してください。

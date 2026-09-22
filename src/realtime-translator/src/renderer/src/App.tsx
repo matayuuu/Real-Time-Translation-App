@@ -10,6 +10,7 @@ import {
 import type {
   AppConfiguration,
   ApplicationInfo,
+  AuthenticationStatus,
   AudioSource,
   ConversationExportOptions,
   ConversationTranscriptEntry,
@@ -59,7 +60,11 @@ const INITIAL_CONNECTIONS: Record<
 };
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(
+    /^Error invoking remote method '[^']+': (?:AuthenticationError|Error):\s*/,
+    "",
+  );
 }
 
 function formatElapsed(totalSeconds: number): string {
@@ -124,6 +129,7 @@ function LevelMeter({ label, value }: LevelMeterProps): React.JSX.Element {
 interface SessionControlsProps {
   phase: AppPhase;
   canStart: boolean;
+  busy?: boolean;
   onStart(): void;
   onPause(): void;
   onResume(): void;
@@ -133,6 +139,7 @@ interface SessionControlsProps {
 export function SessionControls({
   phase,
   canStart,
+  busy = false,
   onStart,
   onPause,
   onResume,
@@ -165,6 +172,7 @@ export function SessionControls({
         <button
           className="button button--primary"
           type="button"
+          disabled={busy}
           onClick={onResume}
         >
           RESUME
@@ -197,6 +205,55 @@ export function SessionControls({
       >
         {transitionLabels[phase] ?? "START CONVERSATION"}
       </button>
+    </div>
+  );
+}
+
+export function AuthenticationNotice({
+  status,
+  cancelling,
+  onCancel,
+  onSignIn,
+  signInDisabled = false,
+}: {
+  status: AuthenticationStatus | null;
+  cancelling: boolean;
+  onCancel(): void;
+  onSignIn?(): void;
+  signInDisabled?: boolean;
+}): React.JSX.Element | null {
+  if (!status || status.state === "ready") {
+    return null;
+  }
+  const failed = status.state === "error";
+  return (
+    <div className="authentication-notice" role="status">
+      <div>
+        <strong>{failed ? "認証エラー" : status.state === "signing-in" ? "Microsoft サインイン" : "認証確認中"}</strong>
+        <p>{status.message}</p>
+        {status.tenantId ? <small>接続先テナント: {status.tenantId}</small> : null}
+      </div>
+      {failed ? (
+        onSignIn ? (
+          <button
+            className="button button--quiet"
+            type="button"
+            disabled={signInDisabled}
+            onClick={onSignIn}
+          >
+            サインインし直す
+          </button>
+        ) : null
+      ) : (
+        <button
+          className="button button--quiet"
+          type="button"
+          disabled={cancelling}
+          onClick={onCancel}
+        >
+          {cancelling ? "キャンセル中..." : "認証をキャンセル"}
+        </button>
+      )}
     </div>
   );
 }
@@ -301,6 +358,11 @@ interface ExportPanelProps {
   transcriptAvailable: boolean;
   savedOutput: string | null;
   error: string | null;
+  authenticationStatus?: AuthenticationStatus | null;
+  cancellingAuthentication?: boolean;
+  onCancelAuthentication?(): void;
+  onSignInAuthentication?(): void;
+  signingInAuthentication?: boolean;
 }
 
 export function ExportPanel({
@@ -313,11 +375,16 @@ export function ExportPanel({
   transcriptAvailable,
   savedOutput,
   error,
+  authenticationStatus = null,
+  cancellingAuthentication = false,
+  onCancelAuthentication,
+  onSignInAuthentication,
+  signingInAuthentication = false,
 }: ExportPanelProps): React.JSX.Element {
   const [summary, setSummary] = useState(false);
   const [nextActions, setNextActions] = useState(false);
   const documentsAvailable = insightsAvailable && transcriptAvailable;
-  const busy = exporting || discarding;
+  const busy = exporting || discarding || signingInAuthentication;
 
   useEffect(() => {
     if (!documentsAvailable) {
@@ -346,6 +413,15 @@ export function ExportPanel({
           </p>
         </div>
         <div className="export-controls">
+          {onCancelAuthentication ? (
+            <AuthenticationNotice
+              status={authenticationStatus}
+              cancelling={cancellingAuthentication}
+              onCancel={onCancelAuthentication}
+              {...(onSignInAuthentication ? { onSignIn: onSignInAuthentication } : {})}
+              signInDisabled={busy}
+            />
+          ) : null}
           <fieldset className="export-options">
             <legend>Markdown オプション</legend>
             <label className="export-option">
@@ -443,6 +519,11 @@ export function App(): React.JSX.Element {
     null,
   );
   const [phase, setPhase] = useState<AppPhase>("idle");
+  const [authenticationStatus, setAuthenticationStatus] =
+    useState<AuthenticationStatus | null>(null);
+  const [cancellingAuthentication, setCancellingAuthentication] = useState(false);
+  const [signingInAuthentication, setSigningInAuthentication] = useState(false);
+  const [authenticationPaused, setAuthenticationPaused] = useState(false);
   const [consent, setConsent] = useState(false);
   const [microphones, setMicrophones] = useState<MediaDeviceInfo[]>([]);
   const [microphoneDeviceId, setMicrophoneDeviceId] = useState("");
@@ -474,6 +555,7 @@ export function App(): React.JSX.Element {
   >({});
   const startedAtRef = useRef<number | null>(null);
   const accumulatedElapsedMsRef = useRef(0);
+  const startingRef = useRef(false);
 
   const refreshMicrophones = useCallback(async (): Promise<void> => {
     try {
@@ -512,8 +594,13 @@ export function App(): React.JSX.Element {
       if (event.type === "configuration-changed") {
         setConfiguration(event.configuration);
         setConfigurationError(null);
-      } else {
+      } else if (event.type === "configuration-error") {
         setConfigurationError(event.message);
+      } else if (event.type === "authentication-changed") {
+        setAuthenticationStatus(event.status);
+        if (event.status.state === "error") {
+          setGlobalError(event.status.message);
+        }
       }
     });
   }, [refreshMicrophones]);
@@ -588,22 +675,34 @@ export function App(): React.JSX.Element {
   }, []);
 
   const start = async (): Promise<void> => {
-    if (!configuration || !consent || phase === "running") {
+    if (
+      !configuration ||
+      !consent ||
+      startingRef.current ||
+      !["idle", "error"].includes(phase)
+    ) {
       return;
     }
 
+    startingRef.current = true;
     setPhase("starting");
     setGlobalError(null);
     setSourceErrors({ speaker: null, microphone: null });
     setConnections(INITIAL_CONNECTIONS);
     setRecordingResult(null);
     setSavedOutput(null);
+    setAuthenticationPaused(false);
     accumulatedElapsedMsRef.current = 0;
     startedAtRef.current = null;
     setElapsedSeconds(0);
     dispatchTranscript({ type: "clear" });
 
     try {
+      await window.desktop.authentication.prepare();
+      const [speakerSecret, microphoneSecret] = await Promise.all([
+        window.desktop.translation.createSecret({ source: "speaker", targetLanguage: "ja" }),
+        window.desktop.translation.createSecret({ source: "microphone", targetLanguage: "ja" }),
+      ]);
       const captured = await captureAudio(microphoneDeviceId);
       capturedRef.current = captured;
       await refreshMicrophones();
@@ -655,7 +754,10 @@ export function App(): React.JSX.Element {
               dispatchTranscript({ type: "finalize-source", source });
             },
             onError(message) {
-              setSourceErrors((current) => ({ ...current, [source]: message }));
+              setSourceErrors((current) => ({
+                ...current,
+                [source]: errorMessage(message),
+              }));
             },
           },
         );
@@ -665,7 +767,10 @@ export function App(): React.JSX.Element {
         speaker: speakerSession,
         microphone: microphoneSession,
       };
-      await Promise.all([speakerSession.start(), microphoneSession.start()]);
+      await Promise.all([
+        speakerSession.start(speakerSecret),
+        microphoneSession.start(microphoneSecret),
+      ]);
 
       startedAtRef.current = Date.now();
       setElapsedSeconds(0);
@@ -675,6 +780,8 @@ export function App(): React.JSX.Element {
       const result = await stopResources();
       setRecordingResult(result);
       setPhase(result ? "finished" : "error");
+    } finally {
+      startingRef.current = false;
     }
   };
 
@@ -713,15 +820,63 @@ export function App(): React.JSX.Element {
     setPhase("resuming");
     setGlobalError(null);
     try {
+      await window.desktop.authentication.prepare();
+      await Promise.all(
+        Object.values(sessionsRef.current).map((session) => session.prepareResume()),
+      );
+    } catch (error) {
+      setGlobalError(`再開できませんでした: ${errorMessage(error)}`);
+      setPhase("paused");
+      return;
+    }
+    try {
       await pipelineRef.current.resume();
       Object.values(sessionsRef.current).forEach((session) => session.resume());
       startedAtRef.current = Date.now();
+      setAuthenticationPaused(false);
       setPhase("running");
     } catch (error) {
       setGlobalError(`再開できませんでした: ${errorMessage(error)}`);
       const result = await stopResources();
       setRecordingResult(result);
       setPhase(result ? "finished" : "error");
+    }
+  };
+
+  useEffect(() => {
+    if (authenticationStatus?.state === "signing-in" && phase === "running") {
+      setAuthenticationPaused(true);
+      void pause();
+    }
+  }, [authenticationStatus?.state, phase]);
+
+  const cancelAuthentication = async (): Promise<void> => {
+    setCancellingAuthentication(true);
+    try {
+      await window.desktop.authentication.cancel();
+    } catch (error) {
+      setGlobalError(errorMessage(error));
+    } finally {
+      setCancellingAuthentication(false);
+    }
+  };
+
+  const signIn = async (): Promise<void> => {
+    if (
+      !configuration ||
+      signingInAuthentication ||
+      !["idle", "error", "paused", "finished"].includes(phase)
+    ) {
+      return;
+    }
+    setSigningInAuthentication(true);
+    setGlobalError(null);
+    try {
+      await window.desktop.authentication.signIn();
+    } catch (error) {
+      setGlobalError(errorMessage(error));
+    } finally {
+      setSigningInAuthentication(false);
     }
   };
 
@@ -737,7 +892,14 @@ export function App(): React.JSX.Element {
       );
     }
     setPhase("stopping");
-    const result = await stopResources();
+    // Mark sessions closed before cancelling login so queued reconnects cannot restart it.
+    const stopping = stopResources();
+    try {
+      await window.desktop.authentication.cancel();
+    } catch (error) {
+      setGlobalError(`認証を中止できませんでした: ${errorMessage(error)}`);
+    }
+    const result = await stopping;
     setRecordingResult(result);
     setPhase(result ? "finished" : "error");
   };
@@ -777,6 +939,9 @@ export function App(): React.JSX.Element {
     setSavedOutput(null);
     setGlobalError(null);
     try {
+      if (includeTranscript) {
+        await window.desktop.authentication.prepare();
+      }
       const result = await window.desktop.recording.export({
         sessionId: recordingResult.sessionId,
         options,
@@ -821,8 +986,13 @@ export function App(): React.JSX.Element {
     "resuming",
     "stopping",
   ].includes(phase);
+  const authenticationBusy =
+    signingInAuthentication ||
+    authenticationStatus?.state === "checking" ||
+    authenticationStatus?.state === "signing-in";
   const canStart =
     Boolean(configuration) &&
+    !authenticationBusy &&
     consent &&
     recordingResult === null &&
     (phase === "idle" || phase === "error");
@@ -898,6 +1068,7 @@ export function App(): React.JSX.Element {
             type="button"
             disabled={
               sessionIsActive ||
+              authenticationBusy ||
               exportingRecording ||
               discardingRecording
             }
@@ -929,6 +1100,7 @@ export function App(): React.JSX.Element {
         <SessionControls
           phase={phase}
           canStart={canStart}
+          busy={authenticationBusy}
           onStart={() => void start()}
           onPause={() => void pause()}
           onResume={() => void resume()}
@@ -936,12 +1108,31 @@ export function App(): React.JSX.Element {
         />
       </section>
 
+      {!recordingResult ? (
+        <AuthenticationNotice
+          status={authenticationStatus}
+          cancelling={cancellingAuthentication}
+          onCancel={() => void cancelAuthentication()}
+          onSignIn={() => void signIn()}
+          signInDisabled={
+            !configuration ||
+            authenticationBusy ||
+            (sessionIsActive && phase !== "paused")
+          }
+        />
+      ) : null}
+      {authenticationPaused && phase === "paused" && !authenticationBusy ? (
+        <p className="authentication-notice" role="status">
+          録音と字幕を保持して一時停止しています。RESUME で認証を確認して再開できます。
+        </p>
+      ) : null}
+
       {configurationError ? (
         <div className="global-message global-message--error">
           {configurationError}
         </div>
       ) : null}
-      {globalError ? (
+      {globalError && globalError !== authenticationStatus?.message ? (
         <div className="global-message global-message--error">{globalError}</div>
       ) : null}
 
@@ -993,6 +1184,11 @@ export function App(): React.JSX.Element {
           transcriptAvailable={transcriptAvailable}
           savedOutput={savedOutput}
           error={globalError}
+          authenticationStatus={authenticationStatus}
+          cancellingAuthentication={cancellingAuthentication}
+          onCancelAuthentication={() => void cancelAuthentication()}
+          onSignInAuthentication={() => void signIn()}
+          signingInAuthentication={signingInAuthentication}
         />
       ) : null}
 

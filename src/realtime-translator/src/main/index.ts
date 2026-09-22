@@ -19,6 +19,8 @@ import type {
 } from "../shared/contracts";
 import { IPC_CHANNELS } from "../shared/ipc";
 import { ApplicationInfoService } from "./application-info-service";
+import { AuthenticationService } from "./authentication-service";
+import { AzureCliAuthenticationClient } from "./azure-cli-authentication-client";
 import { ConversationInsightsService } from "./conversation-insights-service";
 import { ContextService } from "./context-service";
 import { ElectronUpdateClient } from "./electron-update-client";
@@ -58,8 +60,9 @@ let contextService: ContextService;
 let recordingService: RecordingService;
 let recordingExportService: RecordingExportService;
 let updateService: UpdateService | null = null;
-const translationSecretService = new TranslationSecretService();
-const conversationInsightsService = new ConversationInsightsService();
+let authenticationService: AuthenticationService;
+let translationSecretService: TranslationSecretService;
+let conversationInsightsService: ConversationInsightsService;
 
 function trustedSender(url: string): boolean {
   if (isDevelopment && process.env.ELECTRON_RENDERER_URL) {
@@ -88,6 +91,9 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.configurationChoose, async (event) => {
     requireTrustedSender(event);
+    if (authenticationService.isBusy) {
+      throw new Error("認証を完了またはキャンセルしてから設定を変更してください。");
+    }
     const selection = await dialog.showOpenDialog(mainWindow!, {
       title: ".realtime-translation/context.json を選択",
       properties: ["openFile"],
@@ -102,6 +108,27 @@ function registerIpcHandlers(): void {
       configuration,
     });
     return configuration;
+  });
+
+  ipcMain.handle(IPC_CHANNELS.authenticationPrepare, async (event) => {
+    requireTrustedSender(event);
+    const configuration = contextService.get();
+    if (!configuration) {
+      throw new Error("Select a valid .realtime-translation/context.json first.");
+    }
+    await authenticationService.prepare(configuration.context);
+  });
+  ipcMain.handle(IPC_CHANNELS.authenticationSignIn, async (event) => {
+    requireTrustedSender(event);
+    const configuration = contextService.get();
+    if (!configuration) {
+      throw new Error("Select a valid .realtime-translation/context.json first.");
+    }
+    await authenticationService.signIn(configuration.context);
+  });
+  ipcMain.handle(IPC_CHANNELS.authenticationCancel, async (event) => {
+    requireTrustedSender(event);
+    await authenticationService.cancel();
   });
 
   ipcMain.handle(
@@ -271,6 +298,12 @@ function reportUpdateError(error: Error): void {
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
+  if (isDevelopment) {
+    console.error(
+      "Realtime Translator がすでに起動しています。新しい開発版は起動していません。" +
+        "未保存の録音を保存し、既存アプリを終了してから npm run dev を再実行してください。",
+    );
+  }
   app.quit();
 } else {
   app.on("second-instance", () => {
@@ -292,6 +325,25 @@ if (!hasSingleInstanceLock) {
       join(app.getPath("userData"), "settings.json"),
       repositoryContextPath,
     );
+    let browserSignIn = false;
+    authenticationService = new AuthenticationService(
+      new AzureCliAuthenticationClient(join(app.getPath("userData"), "azure-cli")),
+      (status) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC_CHANNELS.appEvent, {
+            type: "authentication-changed",
+            status,
+          });
+          if (status.state === "ready" && browserSignIn) {
+            mainWindow.show();
+            mainWindow.focus();
+          }
+        }
+        browserSignIn = status.state === "signing-in";
+      },
+    );
+    translationSecretService = new TranslationSecretService(authenticationService);
+    conversationInsightsService = new ConversationInsightsService(authenticationService);
     recordingService = new RecordingService(
       join(app.getPath("userData"), "recordings"),
     );
@@ -326,6 +378,17 @@ if (!hasSingleInstanceLock) {
         type: "configuration-error",
         message: initializationError,
       });
+    }
+  });
+
+  let cancellingBeforeQuit = false;
+  app.on("before-quit", (event) => {
+    if (authenticationService?.isBusy) {
+      event.preventDefault();
+      if (!cancellingBeforeQuit) {
+        cancellingBeforeQuit = true;
+        void authenticationService.cancel().then(() => app.quit());
+      }
     }
   });
 

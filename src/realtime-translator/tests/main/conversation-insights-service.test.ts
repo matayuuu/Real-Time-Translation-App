@@ -1,9 +1,12 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConversationInsightsService } from "../../src/main/conversation-insights-service";
 import type { RealtimeTranslationContext } from "../../src/shared/contracts";
+
+const getToken = vi.fn().mockResolvedValue({ token: "entra-token" });
+const authentication = { getToken };
 
 function context(): RealtimeTranslationContext {
   return {
@@ -44,6 +47,10 @@ function context(): RealtimeTranslationContext {
 }
 
 describe("ConversationInsightsService", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("requests selected Japanese documents without server-side storage", async () => {
     const credential = {
       getToken: vi.fn().mockResolvedValue({ token: "token" }),
@@ -87,9 +94,7 @@ describe("ConversationInsightsService", () => {
       summary: "## 概要\n\n価格について合意しました。",
       nextActions: "- [ ] 自分: 見積書を送付する（期限: 2026-09-05）",
     });
-    expect(credential.getToken).toHaveBeenCalledWith(
-      "https://ai.azure.com/.default",
-    );
+    expect(credential.getToken).toHaveBeenCalledWith(context());
     expect(fetcher).toHaveBeenCalledOnce();
     const [url, init] = fetcher.mock.calls[0]!;
     expect(url).toBe(
@@ -122,6 +127,84 @@ describe("ConversationInsightsService", () => {
         },
       },
     });
+  });
+
+  it("requests authentication for the current context subscription", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async () =>
+      new Response(
+        JSON.stringify({
+          output_text: JSON.stringify({ summary_markdown: "Meeting summary." }),
+        }),
+        { status: 200 },
+      ),
+    );
+    const service = new ConversationInsightsService(authentication, fetcher);
+    const initialContext = context();
+    const nextContext = {
+      ...initialContext,
+      subscription_id: "11111111-1111-1111-1111-111111111111",
+    };
+
+    for (const configuration of [initialContext, nextContext]) {
+      await service.generate(
+        configuration,
+        [
+          {
+            source: "speaker",
+            startedAt: "2026-09-04T08:00:00.000Z",
+            original: "Hello.",
+            translation: "",
+          },
+        ],
+        { summary: true, nextActions: false },
+      );
+    }
+
+    expect(getToken).toHaveBeenCalledTimes(2);
+    expect(getToken).toHaveBeenNthCalledWith(1, initialContext);
+    expect(getToken).toHaveBeenNthCalledWith(2, nextContext);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not call shared authentication when no document is selected", async () => {
+    const fetcher = vi.fn<typeof fetch>();
+    const service = new ConversationInsightsService(authentication, fetcher);
+
+    await expect(
+      service.generate(context(), [], {
+        summary: false,
+        nextActions: false,
+      }),
+    ).resolves.toEqual({});
+
+    expect(getToken).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("does not fall back to another account when authentication fails", async () => {
+    const authenticationError = new Error("Configured subscription is unavailable.");
+    getToken.mockRejectedValueOnce(authenticationError);
+    const fetcher = vi.fn<typeof fetch>();
+    const configuration = context();
+    const service = new ConversationInsightsService(authentication, fetcher);
+
+    await expect(
+      service.generate(
+        configuration,
+        [
+          {
+            source: "speaker",
+            startedAt: "2026-09-04T08:00:00.000Z",
+            original: "Hello.",
+            translation: "",
+          },
+        ],
+        { summary: true, nextActions: false },
+      ),
+    ).rejects.toBe(authenticationError);
+
+    expect(getToken).toHaveBeenCalledExactlyOnceWith(configuration);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it("does not authenticate or call Luna when no document is selected", async () => {
