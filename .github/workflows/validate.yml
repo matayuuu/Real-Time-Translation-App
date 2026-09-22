@@ -44,6 +44,18 @@ jobs:
         run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
       - name: Package Windows app
         run: npm run package
+      - name: Validate updater artifacts
+        shell: pwsh
+        run: |
+          $metadata = Get-Content -Raw dist/latest.yml
+          $pathMatch = [regex]::Match($metadata, "(?m)^path:\s*(.+)$")
+          if (-not $pathMatch.Success) {
+            throw "dist/latest.yml does not declare an installer path."
+          }
+          $installerPath = Join-Path "dist" $pathMatch.Groups[1].Value.Trim()
+          if (-not (Test-Path -LiteralPath $installerPath)) {
+            throw "The updater installer does not exist: $installerPath"
+          }
       - uses: actions/upload-artifact@v4
         with:
           name: realtime-translator-windows
