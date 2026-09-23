@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -26,6 +27,7 @@ import { ContextService } from "./context-service";
 import { ElectronUpdateClient } from "./electron-update-client";
 import { RecordingExportService } from "./recording-export-service";
 import { RecordingService } from "./recording-service";
+import { StartupGuard } from "./startup-guard";
 import { TranslationSecretService } from "./translation-secret-service";
 import { UpdateService } from "./update-service";
 
@@ -241,13 +243,53 @@ function configureMediaPermissions(): void {
   });
 }
 
-async function createWindow(): Promise<void> {
+function initializeServices(): void {
+  app.setAppUserModelId("com.matayuuu.realtimetranslator");
+  applicationInfoService = new ApplicationInfoService(
+    join(app.getPath("userData"), "application-info.json"),
+    app.getVersion(),
+  );
+  contextService = new ContextService(
+    join(app.getPath("userData"), "settings.json"),
+    repositoryContextPath,
+  );
+  let browserSignIn = false;
+  authenticationService = new AuthenticationService(
+    new AzureCliAuthenticationClient(join(app.getPath("userData"), "azure-cli")),
+    (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.appEvent, {
+          type: "authentication-changed",
+          status,
+        });
+        if (status.state === "ready" && browserSignIn) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+      browserSignIn = status.state === "signing-in";
+    },
+  );
+  translationSecretService = new TranslationSecretService(authenticationService);
+  conversationInsightsService = new ConversationInsightsService(authenticationService);
+  recordingService = new RecordingService(
+    join(app.getPath("userData"), "recordings"),
+  );
+  recordingExportService = new RecordingExportService(
+    recordingService,
+    conversationInsightsService,
+    () => contextService.get()?.context ?? null,
+  );
+}
+
+async function createWindow(onStartupFailure: (error: Error) => void): Promise<void> {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
     minWidth: 800,
     minHeight: 500,
-    show: false,
+    title: "Realtime Translator",
+    show: true,
     icon: isDevelopment
       ? resolve(appRoot, "build", "icon.ico")
       : join(process.resourcesPath, "icon.ico"),
@@ -266,7 +308,14 @@ async function createWindow(): Promise<void> {
       event.preventDefault();
     }
   });
-  mainWindow.once("ready-to-show", () => mainWindow?.show());
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+  });
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    onStartupFailure(new Error(
+      `Renderer exited during startup: ${details.reason} (exit code ${details.exitCode}).`,
+    ));
+  });
 
   if (isDevelopment && process.env.ELECTRON_RENDERER_URL) {
     await mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL);
@@ -296,6 +345,36 @@ function reportUpdateError(error: Error): void {
   console.error(`Automatic update failed: ${error.message}`);
 }
 
+function reportStartupFailure(stage: string, error: Error): void {
+  const logDirectory = join(app.getPath("userData"), "logs");
+  const logPath = join(logDirectory, "startup-error.log");
+  const detail = [
+    new Date().toISOString(),
+    `Realtime Translator ${app.getVersion()}`,
+    `Startup stage: ${stage}`,
+    error.stack ?? error.message,
+  ].join("\n");
+  console.error(detail);
+
+  try {
+    let logMessage = `診断ログ: ${logPath}`;
+    try {
+      mkdirSync(logDirectory, { recursive: true });
+      writeFileSync(logPath, `${detail}\n`, "utf8");
+    } catch (logError) {
+      console.error("Could not save the startup diagnostic log.", logError);
+      logMessage = "診断ログを保存できませんでした。下のエラー内容を控えてください。";
+    }
+    dialog.showErrorBox(
+      "Realtime Translator を起動できませんでした",
+      `起動処理を中止します。アプリを開き直してください。\n\n` +
+        `処理: ${stage}\n${error.message}\n\n${logMessage}`,
+    );
+  } finally {
+    app.exit(1);
+  }
+}
+
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) {
   if (isDevelopment) {
@@ -306,72 +385,49 @@ if (!hasSingleInstanceLock) {
   }
   app.quit();
 } else {
+  const startup = new StartupGuard(reportStartupFailure);
   app.on("second-instance", () => {
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
       }
+      mainWindow.show();
       mainWindow.focus();
     }
   });
 
-  app.whenReady().then(async () => {
-    app.setAppUserModelId("com.matayuuu.realtimetranslator");
-    applicationInfoService = new ApplicationInfoService(
-      join(app.getPath("userData"), "application-info.json"),
-      app.getVersion(),
-    );
-    contextService = new ContextService(
-      join(app.getPath("userData"), "settings.json"),
-      repositoryContextPath,
-    );
-    let browserSignIn = false;
-    authenticationService = new AuthenticationService(
-      new AzureCliAuthenticationClient(join(app.getPath("userData"), "azure-cli")),
-      (status) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC_CHANNELS.appEvent, {
-            type: "authentication-changed",
-            status,
-          });
-          if (status.state === "ready" && browserSignIn) {
-            mainWindow.show();
-            mainWindow.focus();
-          }
-        }
-        browserSignIn = status.state === "signing-in";
-      },
-    );
-    translationSecretService = new TranslationSecretService(authenticationService);
-    conversationInsightsService = new ConversationInsightsService(authenticationService);
-    recordingService = new RecordingService(
-      join(app.getPath("userData"), "recordings"),
-    );
-    recordingExportService = new RecordingExportService(
-      recordingService,
-      conversationInsightsService,
-      () => contextService.get()?.context ?? null,
-    );
+  async function initializeApplication(): Promise<void> {
+    await startup.run("electron-ready", () => app.whenReady());
+    await startup.run("local-services", initializeServices);
 
     let initializationError: string | null = null;
-    try {
-      await contextService.initialize();
-    } catch (error) {
-      initializationError =
-        error instanceof Error ? error.message : String(error);
-    }
-    await recordingService.initialize();
-    await registerAppProtocol();
-    configureMediaPermissions();
-    registerIpcHandlers();
-    await createWindow();
+    await startup.run("configuration", async () => {
+      try {
+        await contextService.initialize();
+      } catch (error) {
+        initializationError =
+          error instanceof Error ? error.message : String(error);
+      }
+    });
+    await startup.run("recordings", () => recordingService.initialize());
+    await startup.run("app-protocol", () => registerAppProtocol());
+    await startup.run("permissions-and-ipc", () => {
+      configureMediaPermissions();
+      registerIpcHandlers();
+    });
+    await startup.run("renderer", () => createWindow((error) => startup.fail(error)));
+    startup.stop();
     if (app.isPackaged) {
-      updateService = new UpdateService(
-        new ElectronUpdateClient(),
-        promptToInstallUpdate,
-        reportUpdateError,
-      );
-      updateService.start();
+      try {
+        updateService = new UpdateService(
+          new ElectronUpdateClient(),
+          promptToInstallUpdate,
+          reportUpdateError,
+        );
+        updateService.start();
+      } catch (error) {
+        reportUpdateError(error instanceof Error ? error : new Error(String(error)));
+      }
     }
     if (initializationError) {
       mainWindow?.webContents.send(IPC_CHANNELS.appEvent, {
@@ -379,7 +435,8 @@ if (!hasSingleInstanceLock) {
         message: initializationError,
       });
     }
-  });
+  }
+  void initializeApplication().catch((error: unknown) => startup.fail(error));
 
   let cancellingBeforeQuit = false;
   app.on("before-quit", (event) => {
@@ -389,10 +446,13 @@ if (!hasSingleInstanceLock) {
         cancellingBeforeQuit = true;
         void authenticationService.cancel().then(() => app.quit());
       }
+    } else {
+      startup.stop();
     }
   });
 
   app.on("window-all-closed", () => {
+    startup.stop();
     updateService?.stop();
     app.quit();
   });
