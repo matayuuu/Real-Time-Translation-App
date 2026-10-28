@@ -75,6 +75,11 @@ const bridge: DesktopBridge = {
   application: {
     getInfo: vi.fn().mockResolvedValue({ version: "test", lastUpdatedAt: "2026-09-17T00:00:00Z" }),
   },
+  window: {
+    getAppearance: vi.fn().mockResolvedValue({ transparencyPercent: 0, alwaysOnTop: false }),
+    setTransparency: vi.fn(),
+    setAlwaysOnTop: vi.fn(),
+  },
   configuration: {
     get: vi.fn(),
     choose: vi.fn(),

@@ -28,6 +28,7 @@ import { RecordingExportService } from "./recording-export-service";
 import { RecordingService } from "./recording-service";
 import { TranslationSecretService } from "./translation-secret-service";
 import { UpdateService } from "./update-service";
+import { WindowAppearanceService } from "./window-appearance-service";
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -63,6 +64,7 @@ let updateService: UpdateService | null = null;
 let authenticationService: AuthenticationService;
 let translationSecretService: TranslationSecretService;
 let conversationInsightsService: ConversationInsightsService;
+let windowAppearanceService: WindowAppearanceService;
 
 function trustedSender(url: string): boolean {
   if (isDevelopment && process.env.ELECTRON_RENDERER_URL) {
@@ -83,6 +85,22 @@ function registerIpcHandlers(): void {
     requireTrustedSender(event);
     return applicationInfoService.get();
   });
+
+  ipcMain.handle(IPC_CHANNELS.windowGetAppearance, (event) => {
+    requireTrustedSender(event);
+    return windowAppearanceService.get();
+  });
+  ipcMain.handle(IPC_CHANNELS.windowSetTransparency, (event, percent: unknown) => {
+    requireTrustedSender(event);
+    return windowAppearanceService.setTransparency(percent);
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.windowSetAlwaysOnTop,
+    (event, alwaysOnTop: unknown) => {
+      requireTrustedSender(event);
+      return windowAppearanceService.setAlwaysOnTop(alwaysOnTop);
+    },
+  );
 
   ipcMain.handle(IPC_CHANNELS.configurationGet, (event) => {
     requireTrustedSender(event);
@@ -259,6 +277,7 @@ async function createWindow(): Promise<void> {
       webSecurity: true,
     },
   });
+  windowAppearanceService = new WindowAppearanceService(mainWindow);
 
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, url) => {

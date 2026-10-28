@@ -13,6 +13,13 @@ const bridge: DesktopBridge = {
   application: {
     getInfo: () => ipcRenderer.invoke(IPC_CHANNELS.applicationGetInfo),
   },
+  window: {
+    getAppearance: () => ipcRenderer.invoke(IPC_CHANNELS.windowGetAppearance),
+    setTransparency: (percent: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.windowSetTransparency, percent),
+    setAlwaysOnTop: (alwaysOnTop: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.windowSetAlwaysOnTop, alwaysOnTop),
+  },
   configuration: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.configurationGet),
     choose: () => ipcRenderer.invoke(IPC_CHANNELS.configurationChoose),

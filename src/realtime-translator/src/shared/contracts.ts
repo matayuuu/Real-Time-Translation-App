@@ -36,6 +36,13 @@ export interface ApplicationInfo {
   lastUpdatedAt: string;
 }
 
+export const MAX_WINDOW_TRANSPARENCY_PERCENT = 80;
+
+export interface WindowAppearance {
+  transparencyPercent: number;
+  alwaysOnTop: boolean;
+}
+
 export interface AuthenticationStatus {
   state: "checking" | "signing-in" | "ready" | "error";
   message: string;
@@ -111,6 +118,11 @@ export type AppEvent =
 export interface DesktopBridge {
   application: {
     getInfo(): Promise<ApplicationInfo>;
+  };
+  window: {
+    getAppearance(): Promise<WindowAppearance>;
+    setTransparency(percent: number): Promise<WindowAppearance>;
+    setAlwaysOnTop(alwaysOnTop: boolean): Promise<WindowAppearance>;
   };
   configuration: {
     get(): Promise<AppConfiguration | null>;

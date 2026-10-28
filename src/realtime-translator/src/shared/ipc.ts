@@ -1,5 +1,8 @@
 export const IPC_CHANNELS = {
   applicationGetInfo: "application:get-info",
+  windowGetAppearance: "window:get-appearance",
+  windowSetTransparency: "window:set-transparency",
+  windowSetAlwaysOnTop: "window:set-always-on-top",
   configurationGet: "configuration:get",
   configurationChoose: "configuration:choose",
   authenticationPrepare: "authentication:prepare",

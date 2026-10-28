@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { DesktopBridge } from "../../src/shared/contracts";
@@ -7,6 +7,7 @@ import {
   ExportPanel,
   SessionControls,
   shouldShowConsentNotice,
+  WindowControls,
 } from "../../src/renderer/src/App";
 
 const bridge: DesktopBridge = {
@@ -15,6 +16,11 @@ const bridge: DesktopBridge = {
       version: "0.1.13",
       lastUpdatedAt: "2026-09-05T00:45:00.000Z",
     }),
+  },
+  window: {
+    getAppearance: vi.fn(),
+    setTransparency: vi.fn(),
+    setAlwaysOnTop: vi.fn(),
   },
   configuration: {
     get: vi.fn().mockResolvedValue(null),
@@ -45,6 +51,18 @@ describe("App", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(bridge.window.getAppearance).mockResolvedValue({
+      transparencyPercent: 0,
+      alwaysOnTop: false,
+    });
+    vi.mocked(bridge.window.setTransparency).mockImplementation(async (percent) => ({
+      transparencyPercent: percent,
+      alwaysOnTop: false,
+    }));
+    vi.mocked(bridge.window.setAlwaysOnTop).mockImplementation(async (alwaysOnTop) => ({
+      transparencyPercent: 0,
+      alwaysOnTop,
+    }));
     Object.defineProperty(window, "desktop", {
       configurable: true,
       value: bridge,
@@ -147,6 +165,84 @@ describe("App", () => {
       })
         .disabled,
     ).toBe(true);
+  });
+
+  it("changes native transparency immediately and can restore an opaque window", async () => {
+    render(<WindowControls />);
+    const slider = screen.getByRole("slider", { name: "透過率" });
+    await waitFor(() => expect(slider).toBeEnabled());
+    expect(slider).toHaveAttribute("min", "0");
+    expect(slider).toHaveAttribute("max", "80");
+
+    fireEvent.change(slider, { target: { value: "55" } });
+    expect(bridge.window.setTransparency).toHaveBeenCalledWith(55);
+    await waitFor(() => expect(slider).toHaveValue("55"));
+    fireEvent.click(screen.getByRole("button", { name: "不透明に戻す" }));
+    await waitFor(() => expect(slider).toHaveValue("0"));
+    expect(bridge.window.setTransparency).toHaveBeenLastCalledWith(0);
+  });
+
+  it("allows pinning and unpinning the native window", async () => {
+    render(<WindowControls />);
+    const button = screen.getByRole("button", { name: "最前面に固定" });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute("aria-pressed", "true"));
+    expect(bridge.window.setAlwaysOnTop).toHaveBeenCalledWith(true);
+    fireEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute("aria-pressed", "false"));
+    expect(bridge.window.setAlwaysOnTop).toHaveBeenLastCalledWith(false);
+  });
+
+  it("keeps the newest slider value when older IPC replies arrive later", async () => {
+    let finishOlder!: (value: { transparencyPercent: number; alwaysOnTop: boolean }) => void;
+    vi.mocked(bridge.window.setTransparency).mockImplementationOnce(
+      () => new Promise((resolve) => { finishOlder = resolve; }),
+    );
+    render(<WindowControls />);
+    const slider = screen.getByRole("slider", { name: "透過率" });
+    await waitFor(() => expect(slider).toBeEnabled());
+    fireEvent.change(slider, { target: { value: "20" } });
+    fireEvent.change(slider, { target: { value: "70" } });
+    await waitFor(() => expect(slider).toHaveValue("70"));
+    await act(async () => finishOlder({ transparencyPercent: 20, alwaysOnTop: false }));
+    expect(slider).toHaveValue("70");
+  });
+
+  it("reports native window errors and restores the previous slider value", async () => {
+    vi.mocked(bridge.window.setTransparency).mockRejectedValueOnce(new Error("window unavailable"));
+    render(<WindowControls />);
+    const slider = screen.getByRole("slider", { name: "透過率" });
+    await waitFor(() => expect(slider).toBeEnabled());
+    fireEvent.change(slider, { target: { value: "40" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("window unavailable");
+    await waitFor(() => expect(slider).toHaveValue("0"));
+  });
+
+  it("reconciles with the native window after the newest of several changes fails", async () => {
+    vi.mocked(bridge.window.getAppearance)
+      .mockResolvedValueOnce({ transparencyPercent: 0, alwaysOnTop: false })
+      .mockResolvedValueOnce({ transparencyPercent: 20, alwaysOnTop: true });
+    vi.mocked(bridge.window.setTransparency)
+      .mockResolvedValueOnce({ transparencyPercent: 20, alwaysOnTop: true })
+      .mockRejectedValueOnce(new Error("latest change failed"));
+    render(<WindowControls />);
+    const slider = screen.getByRole("slider", { name: "透過率" });
+    await waitFor(() => expect(slider).toBeEnabled());
+    fireEvent.change(slider, { target: { value: "20" } });
+    fireEvent.change(slider, { target: { value: "70" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("latest change failed");
+    await waitFor(() => expect(slider).toHaveValue("20"));
+    expect(screen.getByRole("button", { name: "最前面に固定" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("reports unavailable window settings without enabling misleading controls", async () => {
+    vi.mocked(bridge.window.getAppearance).mockRejectedValueOnce(new Error("IPC unavailable"));
+    render(<WindowControls />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("IPC unavailable");
+    expect(screen.getByRole("slider", { name: "透過率" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "最前面に固定" })).toBeDisabled();
   });
 
   it("shows the installed version and last update time in the footer", async () => {

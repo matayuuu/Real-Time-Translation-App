@@ -15,7 +15,9 @@ import type {
   ConversationExportOptions,
   ConversationTranscriptEntry,
   RecordingStopResult,
+  WindowAppearance,
 } from "@shared/contracts";
+import { MAX_WINDOW_TRANSPARENCY_PERCENT } from "@shared/contracts";
 
 import {
   AudioPipeline,
@@ -64,6 +66,132 @@ function errorMessage(error: unknown): string {
   return message.replace(
     /^Error invoking remote method '[^']+': (?:AuthenticationError|Error):\s*/,
     "",
+  );
+}
+
+export function WindowControls(): React.JSX.Element {
+  const [appearance, setAppearance] = useState<WindowAppearance | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const latestRequest = useRef(0);
+  const mounted = useRef(false);
+
+  useEffect(() => {
+    mounted.current = true;
+    const request = ++latestRequest.current;
+    void window.desktop.window.getAppearance().then(
+      (value) => {
+        if (mounted.current && request === latestRequest.current) {
+          setAppearance(value);
+        }
+      },
+      (reason: unknown) => {
+        if (mounted.current && request === latestRequest.current) {
+          setError(`表示設定を取得できません: ${errorMessage(reason)}`);
+        }
+      },
+    );
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const update = async (
+    apply: () => Promise<WindowAppearance>,
+    preview: WindowAppearance,
+  ): Promise<void> => {
+    const request = ++latestRequest.current;
+    setAppearance(preview);
+    setError(null);
+    try {
+      const value = await apply();
+      if (mounted.current && request === latestRequest.current) {
+        setAppearance(value);
+      }
+    } catch (reason) {
+      if (mounted.current && request === latestRequest.current) {
+        setError(`表示設定を変更できません: ${errorMessage(reason)}`);
+        try {
+          const current = await window.desktop.window.getAppearance();
+          if (mounted.current && request === latestRequest.current) {
+            setAppearance(current);
+          }
+        } catch (readError) {
+          if (mounted.current && request === latestRequest.current) {
+            setAppearance(null);
+            setError(
+              `表示設定を変更できません: ${errorMessage(reason)}。` +
+                `現在の設定も取得できません: ${errorMessage(readError)}`,
+            );
+          }
+        }
+      }
+    }
+  };
+
+  const changeTransparency = (percent: number): void => {
+    if (appearance) {
+      void update(
+        () => window.desktop.window.setTransparency(percent),
+        { ...appearance, transparencyPercent: percent },
+      );
+    }
+  };
+
+  return (
+    <section className="window-controls" aria-label="ウィンドウの表示設定">
+      <div className="window-controls__actions">
+        <label className="transparency-control">
+          <span>透過率</span>
+          <input
+            type="range"
+            aria-label="透過率"
+            min={0}
+            max={MAX_WINDOW_TRANSPARENCY_PERCENT}
+            step={1}
+            value={appearance?.transparencyPercent ?? 0}
+            disabled={!appearance}
+            aria-describedby="window-transparency-hint"
+            aria-valuetext={`${appearance?.transparencyPercent ?? 0}%`}
+            onChange={(event) => changeTransparency(Number(event.target.value))}
+          />
+          <output aria-hidden="true">{appearance?.transparencyPercent ?? 0}%</output>
+        </label>
+        <button
+          className="button button--quiet"
+          type="button"
+          disabled={!appearance || appearance.transparencyPercent === 0}
+          onClick={() => changeTransparency(0)}
+        >
+          不透明に戻す
+        </button>
+        <button
+          className="button button--pin"
+          type="button"
+          aria-pressed={appearance?.alwaysOnTop ?? false}
+          disabled={!appearance}
+          onClick={() => {
+            if (appearance) {
+              const alwaysOnTop = !appearance.alwaysOnTop;
+              void update(
+                () => window.desktop.window.setAlwaysOnTop(alwaysOnTop),
+                { ...appearance, alwaysOnTop },
+              );
+            }
+          }}
+        >
+          最前面に固定
+        </button>
+      </div>
+      <p id="window-transparency-hint" className="window-controls__hint">
+        0% は不透明。文字・ボタンも含めて最大 {MAX_WINDOW_TRANSPARENCY_PERCENT}% 透過します。
+        会議画面に重ねるときは最前面に固定してください。
+      </p>
+      {error ? (
+        <p className="global-message global-message--error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -1049,6 +1177,8 @@ export function App(): React.JSX.Element {
           <strong>{formatElapsed(elapsedSeconds)}</strong>
         </div>
       </header>
+
+      <WindowControls />
 
       <section className="control-strip" aria-label="セッション設定">
         <div className="configuration-summary">

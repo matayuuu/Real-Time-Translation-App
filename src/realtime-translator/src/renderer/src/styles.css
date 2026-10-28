@@ -34,6 +34,7 @@ main {
 }
 
 .app-header,
+.window-controls,
 .control-strip,
 .notice-bar,
 .transcript-pane,
@@ -135,6 +136,66 @@ footer {
 .recording-dot.is-paused {
   background: var(--cp-warning);
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--cp-warning) 16%, transparent);
+}
+
+.window-controls {
+  margin-top: -1px;
+  padding: 10px 18px;
+}
+
+.window-controls__actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+
+.transparency-control {
+  display: flex;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 0.85rem;
+}
+
+.transparency-control input {
+  flex: 1;
+  min-width: 80px;
+  max-width: 320px;
+  min-height: 32px;
+  margin: 0;
+  accent-color: var(--cp-accent);
+  cursor: pointer;
+}
+
+.transparency-control input:disabled {
+  cursor: not-allowed;
+}
+
+.transparency-control output {
+  min-width: 3ch;
+  color: var(--cp-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.window-controls__hint {
+  margin-top: 5px;
+  color: var(--cp-text-muted);
+  font-size: 0.74rem;
+  line-height: 1.5;
+}
+
+.button--pin[aria-pressed="true"] {
+  border-color: var(--cp-accent);
+  background: var(--cp-accent-soft);
+  color: var(--cp-accent);
+}
+
+.window-controls :is(input, button):focus-visible {
+  outline: 2px solid var(--cp-accent);
+  outline-offset: 3px;
 }
 
 .control-strip {
