@@ -245,6 +245,36 @@ Setup 版は起動時と 15 分ごとに Release を確認し、更新をダウ�
 現在の配布物はコード署名されていないため、更新 installer でも SmartScreen が表示される場合が
 あります。本番配布では Windows コード署名証明書を設定してください。
 
+## 開発時の構成と変更方針
+
+Electron の main はウィンドウ、設定、認証、録音ファイル、保存、更新を管理します。
+React renderer は表示と音声処理を担当し、Node.js や Azure CLI には直接アクセスしません。
+preload が `DesktopBridge` の限定された IPC を公開し、main は sender と入力を検証します。
+共有契約を変更した場合は、main・preload・renderer とテストのモックを同時に更新します。
+
+音声の取得・送信は同意と認証後に開始します。システム音声とマイクの翻訳接続は分離し、
+MP3 は端末内で混合します。任意の Markdown 生成は追加の会話ログ送信を伴います。
+設定・認証キャッシュ・録音と Terraform state はローカル専用で、Git の管理対象ではありません。
+
+開発用の地図と検証コマンドは [AGENTS.md](../AGENTS.md) を参照してください。
+既存の Vitest、strict TypeScript、Windows build、pytest 契約テスト、
+PowerShell 構文検査、Terraform の書式・構成検証を維持します。
+JavaScript/TypeScript の独立した lint・formatter は現在未設定です。
+既存ソースの一括整形や新しい検証ツールの導入は、必要性と影響を確認して行います。
+
+変更を共有する場合は、作業ブランチから `main` への PR を基本の提案経路とします。
+既存 checkout のブランチ切り替え、commit、push、PR 作成、merge はそれぞれ依頼に従い、
+初期化だけでは実行しません。PR の最新 head に対応する `application`・`infrastructure`
+の成功と必要なレビューを確認してから、承認された merge を行います。
+GitHub 側の required checks・レビュー必須化・branch rules は、この文書では設定しません。
+
+既存の Release job は main への push 後に配布します。コード変更、ローカル検証、
+remote CI、merge、Release 公開は別の到達点として扱い、未実行を成功としません。
+公開まで依頼された場合だけ、対象 commit と Release の配布物の対応まで確認します。
+構造・仕様・データ境界を変えたら、このガイドと対応するテストを同じ変更で更新します。
+高コストな判断を記録する必要が生じた場合は `.github/adr/` を使い、
+日常的な実装選択や一時的な進捗のための文書は増やしません。
+
 ## 使用手順
 
 1. ヘッドセットを接続し、翻訳対象アプリの出力先を Windows の既定スピーカーに合わせます。
